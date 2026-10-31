@@ -1,0 +1,4 @@
+go test fuzz v1
+string("секрет")
+int(1)
+int(1)
