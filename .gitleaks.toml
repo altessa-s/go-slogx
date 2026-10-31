@@ -1,0 +1,23 @@
+# gitleaks configuration for go-slogx (full-history scans and the CI gate).
+#
+# Real secrets must NEVER be allowlisted here — rotate and rewrite history
+# instead. Allowlist only findings verified as synthetic (test fixtures that
+# exercise key redaction, documentation placeholders), and keep entries narrow
+# (exact values or single directories), never whole file classes like
+# `*_test.go`.
+
+title = "go-slogx"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Verified synthetic fixtures and documentation placeholders"
+paths = [
+    # Claude Code tooling artifacts: kept out of the tree, may contain
+    # documentation examples.
+    '''\.claude/.*''',
+    # Synthetic credential literals used by masking regression tests.
+    '''^handler/masking/ported_handler_kindany_test\.go$''',
+]
+regexes = []
