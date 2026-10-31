@@ -27,7 +27,7 @@ const module = "github.com/altessa-s/go-slogx"
 // goAtlasCore is the foundation module. Adapters and the test kit may import it.
 const goAtlasCore = "github.com/altessa-s/go-atlas-core/..."
 
-// layers is the dependency rule of AGENTS.md. A pattern ending in "/..." matches
+// layers defines the allowed dependencies. A pattern ending in "/..." matches
 // a path and everything under it. A package missing from this table fails the test.
 var layers = map[string][]string{
 	".":                    nil,
@@ -212,7 +212,7 @@ func checkLayers(t *testing.T, root string, table map[string][]string, testingPk
 	}
 	for dir, imports := range pkgs {
 		allowed, ok := layerOf(table, dir)
-		require.True(t, ok, "package %s is in no layer: add it to the layers table and to AGENTS.md", dir)
+		require.True(t, ok, "package %s is in no layer: add it to the layers table", dir)
 		for _, imp := range imports {
 			if stdlib(imp) {
 				if imp == "testing" || strings.HasPrefix(imp, "testing/") {

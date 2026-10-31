@@ -39,7 +39,11 @@ constant before calling `setup`.
 github.com/altessa-s/go-slogx
 ```
 
-Go 1.27. See [AGENTS.md](AGENTS.md) for the layer rules and [docs/adr](docs/adr) for the decisions.
+Go 1.27. Dependencies point inward: the root and `mask` use only the standard library;
+middleware uses domain and internal packages, never sibling middleware or go-atlas-core.
+`setup` alone composes the chain. The explicit package tables in `architecture_test.go`
+enforce these boundaries across every module, along with dependency purity, generated
+options, package documentation, and restrictions on initialization and exported mutable state.
 
 ## Usage
 

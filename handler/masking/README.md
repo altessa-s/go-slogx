@@ -18,5 +18,10 @@ defaults regardless of option order. Case-insensitive matching is the default.
 The generated bool options accept an explicit bool.
 
 With rules active, arbitrary values are normalized through JSON before masking. Text structs therefore use JSON-shaped groups, including JSON
-field names and omission rules. Marshal errors and ordinary panics fail closed. See [ADR 0007](../../docs/adr/0007-single-redaction-policy.md)
-for representation changes, budget limits, and the defensive preflight required by the pinned encoder.
+field names and omission rules. Marshal errors and ordinary panics fail closed.
+Traversal stops at depth 10 and limits each decoded container to 256 elements.
+A defensive preflight also bounds the original value to 256 visited values and
+depth 10 before encoding, preventing recursive pointer/interface input from
+exhausting the encoder's stack. Unsupported JSON field names fail closed.
+Values exceeding these limits become fixed placeholders without their contents.
+Custom encoding callbacks and message text remain the consumer's responsibility.
