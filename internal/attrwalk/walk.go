@@ -189,6 +189,15 @@ func (h *Walker) walkJSON(tree any, groups []string, depth int) slog.Value {
 		if len(v) > maxContainerBreadth {
 			attrs = append(attrs, slog.String("...", breadthLimitPlaceholder))
 		}
+		if _, hasEmptyKey := v[""]; hasEmptyKey {
+			// Slog inlines empty-key groups and drops empty-key null attributes.
+			// Keep this object as JSON data before GroupValue can discard them.
+			out := make(map[string]any, len(attrs))
+			for _, attr := range attrs {
+				out[attr.Key] = jsonValue(attr.Value)
+			}
+			return slog.AnyValue(out)
+		}
 		return slog.GroupValue(attrs...)
 	case []any:
 		if depth >= maxMaskDescentDepth {
@@ -210,7 +219,7 @@ func (h *Walker) walkJSON(tree any, groups []string, depth int) slog.Value {
 	}
 }
 
-// jsonValue converts sanitized groups inside arrays back to generic JSON data.
+// jsonValue converts sanitized groups back to generic JSON data.
 func jsonValue(value slog.Value) any {
 	if value.Kind() != slog.KindGroup {
 		return value.Any()
