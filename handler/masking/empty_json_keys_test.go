@@ -7,6 +7,7 @@ package masking_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"testing"
 
@@ -15,6 +16,56 @@ import (
 	"github.com/altessa-s/go-slogx/handler/masking"
 	"github.com/altessa-s/go-slogx/mask"
 )
+
+func TestJSONEmptyAttributeKeyPreservesShapeAndMaskPaths(t *testing.T) {
+	t.Parallel()
+	for _, grouped := range []bool{false, true} {
+		for _, captured := range []bool{false, true} {
+			for _, matched := range []bool{false, true} {
+				t.Run(fmt.Sprintf("grouped=%t/captured=%t/matched=%t", grouped, captured, matched), func(t *testing.T) {
+					t.Parallel()
+					path := ".private"
+					if grouped {
+						path = "root." + path
+					}
+					opts := []masking.Option{masking.WithDefaults(true)}
+					wantPrivate := "hidden"
+					if matched {
+						opts = append(opts, masking.WithRules(mask.Rule{Field: path, Mask: mask.Full()}))
+						wantPrivate = "********"
+					}
+					var buf bytes.Buffer
+					h := portedHandler(t, slog.NewJSONHandler(&buf, nil), opts...)
+					logger := slog.New(h)
+					if grouped {
+						logger = logger.WithGroup("root")
+					}
+					input := map[string]any{"public": "visible", "private": "hidden"}
+					attrs := []slog.Attr{slog.Any("", input), slog.String("private", "visible")}
+					if captured {
+						logger = slog.New(logger.Handler().WithAttrs(attrs))
+						attrs = nil
+					}
+					logger.LogAttrs(t.Context(), slog.LevelInfo, "test", attrs...)
+					var record map[string]any
+					require.NoError(t, json.Unmarshal(buf.Bytes(), &record))
+					delete(record, "time")
+					delete(record, "level")
+					delete(record, "msg")
+					want := map[string]any{
+						"":        map[string]any{"public": "visible", "private": wantPrivate},
+						"private": "visible",
+					}
+					if grouped {
+						want = map[string]any{"root": want}
+					}
+					require.Equal(t, want, record)
+					require.Equal(t, map[string]any{"public": "visible", "private": "hidden"}, input)
+				})
+			}
+		}
+	}
+}
 
 func TestJSONEmptyKeysPreserveShapeAndMaskPaths(t *testing.T) {
 	t.Parallel()

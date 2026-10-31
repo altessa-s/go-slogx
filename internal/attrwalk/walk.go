@@ -74,6 +74,10 @@ func (h *Walker) maskAttributeDepth(attr slog.Attr, groups []string, depth int) 
 			return slog.String(attr.Key, failure)
 		}
 		attr.Value = h.walkJSON(tree, slices.Concat(groups, []string{attr.Key}), depth)
+		if attr.Key == "" && attr.Value.Kind() == slog.KindGroup {
+			// An empty-key slog group is inlined, but a JSON object keeps its key.
+			attr.Value = slog.AnyValue(jsonValue(attr.Value))
+		}
 	}
 	return attr
 }

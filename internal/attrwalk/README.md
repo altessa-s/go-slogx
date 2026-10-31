@@ -6,6 +6,7 @@ import "github.com/altessa-s/go-slogx/internal/attrwalk"
 
 Masks resolved attributes and the `encoding/json` representation of `KindAny` values. JSON is decoded with `UseNumber`, preserving numeric
 precision. Objects become slog groups; arrays, empty objects, and objects containing empty keys remain generic JSON values to preserve their shape.
+Objects under an empty attribute key also remain generic JSON values so sinks retain that key and its matching path segment.
 Original objects never reach the sink when rules are active. JSON controls private fields, tags, embedding, omission, and custom encoding.
 Attribute-level `LogValuer` is resolved first;
 inside a `KindAny` object, JSON's own method semantics apply.
