@@ -45,7 +45,7 @@ func Golden(t testing.TB, name string, got []byte, update bool) {
 		require.NoError(t, os.MkdirAll(filepath.Dir(file), goldenDirMode))
 		require.NoError(t, os.WriteFile(file, got, goldenFileMode))
 	}
-	expected, err := os.ReadFile(file)
+	expected, err := os.ReadFile(file) // #nosec G304 -- file is the golden path the test itself names under testdata
 	require.NoError(t, err)
 	require.Equal(t, string(expected), string(got))
 }

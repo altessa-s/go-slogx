@@ -17,5 +17,7 @@ paths = [
     # Claude Code tooling artifacts: kept out of the tree, may contain
     # documentation examples.
     '''\.claude/.*''',
+    # Synthetic credential literals used by masking regression tests.
+    '''^handler/masking/ported_handler_kindany_test\.go$''',
 ]
 regexes = []
