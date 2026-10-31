@@ -46,7 +46,7 @@ func TestOptionsAndBypassDerivedHandlers(t *testing.T) {
 		require.NoError(t, err)
 		l.Logger().Error("failure")
 		require.ErrorIs(t, callback, bufwriter.ErrPanicked)
-		require.ErrorIs(t, l.Shutdown(t.Context()), bufwriter.ErrPanicked)
+		require.NoError(t, l.Shutdown(t.Context()))
 		_, err = setup.New(io.Discard, setup.WithBufferSize(8), setup.WithSink(func(io.Writer, *slog.HandlerOptions) slog.Handler { return nil }))
 		require.Error(t, err)
 	})

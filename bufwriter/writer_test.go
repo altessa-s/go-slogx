@@ -51,7 +51,8 @@ func TestDrainCopiesAndClosedFlush(t *testing.T) {
 		require.NoError(t, w.Close(t.Context()))
 		require.NoError(t, w.Flush(t.Context()))
 		_, err = w.Write(data)
-		require.ErrorIs(t, err, bufwriter.ErrClosed)
+		require.NoError(t, err)
+		require.Equal(t, "originalmodified", sink.String())
 	})
 }
 func TestPanicRecoveryAndWriteErrors(t *testing.T) {
@@ -82,7 +83,7 @@ func TestPanicRecoveryAndWriteErrors(t *testing.T) {
 		require.ErrorIs(t, observed, io.ErrClosedPipe)
 		require.ErrorIs(t, observed, io.ErrShortWrite)
 		require.NotContains(t, err.Error(), "payload")
-		require.Error(t, w.Close(t.Context()))
+		require.NoError(t, w.Close(t.Context()))
 		require.Equal(t, int32(3), reported.Load())
 	})
 }

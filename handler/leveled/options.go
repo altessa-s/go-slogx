@@ -5,7 +5,6 @@
 package leveled
 
 //go:generate optgen generate --keep-empty-strings --no-default-modifiers
-//go:generate sh ../../docs/generated-header.sh options_gen.go
 import (
 	"log/slog"
 

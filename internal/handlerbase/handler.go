@@ -13,7 +13,7 @@ import (
 // Base provides common functionality for slog middleware handlers.
 // It should be embedded in concrete handler implementations.
 //
-// Base is immutable after creation - WithAttrsBase and WithGroupBase
+// Base is immutable after creation - AttrsBase and GroupBase
 // return new Base instances rather than modifying the existing one.
 type Base struct {
 	inner  slog.Handler
@@ -66,24 +66,24 @@ func (b *Base) Enabled(ctx context.Context, level slog.Level) bool {
 	return b.inner.Enabled(ctx, level)
 }
 
-// WithAttrsBase returns a new Base with the inner handler updated via WithAttrs.
+// AttrsBase returns a new Base with the inner handler updated via WithAttrs.
 // The groups are preserved. Use this in your handler's WithAttrs implementation:
 //
 //	func (h *MyHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 //	    processedAttrs := h.processAttrs(attrs)
 //	    return &MyHandler{
-//	        Base:  h.WithAttrsBase(processedAttrs),
+//	        Base:  h.AttrsBase(processedAttrs),
 //	        field: h.field,
 //	    }
 //	}
-func (b *Base) WithAttrsBase(attrs []slog.Attr) Base {
+func (b *Base) AttrsBase(attrs []slog.Attr) Base {
 	return Base{
 		inner:  b.inner.WithAttrs(attrs),
 		groups: b.groups,
 	}
 }
 
-// WithGroupBase returns a new Base with the group added to the path
+// GroupBase returns a new Base with the group added to the path
 // and inner handler updated via WithGroup.
 // Use this in your handler's WithGroup implementation:
 //
@@ -92,11 +92,11 @@ func (b *Base) WithAttrsBase(attrs []slog.Attr) Base {
 //	        return h
 //	    }
 //	    return &MyHandler{
-//	        Base:  h.WithGroupBase(name),
+//	        Base:  h.GroupBase(name),
 //	        field: h.field,
 //	    }
 //	}
-func (b *Base) WithGroupBase(name string) Base {
+func (b *Base) GroupBase(name string) Base {
 	newGroups := make([]string, len(b.groups)+1)
 	copy(newGroups, b.groups)
 	newGroups[len(b.groups)] = name

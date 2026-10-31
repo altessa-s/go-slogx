@@ -76,32 +76,37 @@ func (e *mutableError) Error() string { return e.message }
 type mutableValue struct{ data map[string]string }
 
 func (v mutableValue) LogValue() slog.Value { return slog.AnyValue(v.data) }
-func TestBufferedEncodingOwnsBytes(t *testing.T) {
+func TestM6R1BufferedEncodingOwnsBytes(t *testing.T) {
 	t.Parallel()
-	synctest.Test(t, func(t *testing.T) {
-		var b bytes.Buffer
-		l, err := setup.New(&b, setup.WithFormat(setup.JSON), setup.WithBufferSize(100))
-		require.NoError(t, err)
-		data := map[string]string{"value": "before"}
-		slice := []string{"before"}
-		pointer := new("before")
-		mutableErr := &mutableError{message: "before"}
-		for range 30 {
-			data["value"] = "before"
-			slice[0] = "before"
-			*pointer = "before"
-			mutableErr.message = "before"
-			l.Logger().Info("snapshot", "map", data, "slice", slice, "pointer", pointer, "valuer", mutableValue{data}, "error", mutableErr)
-			data["value"] = "after"
-			slice[0] = "after"
-			*pointer = "after"
-			mutableErr.message = "after"
+	for _, format := range []setup.Format{setup.Text, setup.JSON} {
+		for _, defaults := range []bool{false, true} {
+			synctest.Test(t, func(t *testing.T) {
+				var b bytes.Buffer
+				l, err := setup.New(&b, setup.WithFormat(format), setup.WithMaskDefaults(defaults), setup.WithBufferSize(100))
+				require.NoError(t, err)
+				data := map[string]string{"value": "before"}
+				slice := []string{"before"}
+				pointer := new("before")
+				mutableErr := &mutableError{message: "before"}
+				for range 30 {
+					data["value"] = "before"
+					slice[0] = "before"
+					*pointer = "before"
+					mutableErr.message = "before"
+					l.Logger().Info("snapshot", "map", data, "slice", slice, "pointer", pointer, "valuer", mutableValue{data}, "error", mutableErr)
+					data["value"] = "after"
+					slice[0] = "after"
+					*pointer = "after"
+					mutableErr.message = "after"
+				}
+				require.NoError(t, l.Shutdown(t.Context()))
+				require.NotContains(t, b.String(), "after")
+				require.Contains(t, b.String(), "before")
+			})
 		}
-		require.NoError(t, l.Shutdown(t.Context()))
-		require.NotContains(t, b.String(), "after")
-		require.Contains(t, b.String(), "before")
-	})
+	}
 }
+
 func TestValidationAndCustomSink(t *testing.T) {
 	t.Parallel()
 	for _, opts := range [][]setup.Option{{setup.WithBufferSize(-1)}, {setup.WithFormat(99)}, {setup.WithColor(99)}, {setup.WithMaskRules(mask.Rule{Pattern: "["})}, {setup.WithLevel(slogx.LevelOff), setup.WithMaskRules(mask.Rule{})}} {

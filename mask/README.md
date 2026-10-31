@@ -24,3 +24,5 @@ pattern requires a valid `pattern`, with either `replacement` or a replacement m
 Phone and credit-card masks retain four leading and two trailing runes. Email
 retains the local part's first/last runes, with at most five asterisks between.
 Short phone values are fully masked; partial masks fully hide overlapping ranges.
+
+`URL` retains the scheme and host, removes userinfo and fragments, masks query values, and masks the entire non-root path, including its last segment.

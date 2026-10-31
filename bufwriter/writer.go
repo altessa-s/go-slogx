@@ -26,7 +26,7 @@ type entry struct {
 // overtake queued writes. Close does not close the caller's underlying writer.
 type Writer struct {
 	mu      sync.Mutex
-	writeMu sync.Mutex
+	writeMu chan struct{}
 	errMu   sync.Mutex
 	sink    io.Writer
 	queue   chan entry
@@ -46,7 +46,7 @@ func New(sink io.Writer, opts ...Option) (*Writer, error) {
 	if sink == nil || o.size <= 0 {
 		return nil, errors.New("bufwriter: writer and positive size required")
 	}
-	w := &Writer{sink: sink, queue: make(chan entry, o.size),
+	w := &Writer{sink: sink, writeMu: make(chan struct{}, 1), queue: make(chan entry, o.size),
 		done: make(chan struct{}), stop: make(chan struct{}), onError: o.onError, pending: make(map[chan struct{}]struct{})}
 	go w.run()
 	return w, nil
@@ -87,8 +87,8 @@ func (w *Writer) process(e entry) {
 
 func (w *Writer) write(p []byte) (n int, err error) {
 	func() {
-		w.writeMu.Lock()
-		defer w.writeMu.Unlock()
+		w.writeMu <- struct{}{}
+		defer func() { <-w.writeMu }()
 		defer func() {
 			if recover() != nil {
 				n = 0
@@ -102,9 +102,7 @@ func (w *Writer) write(p []byte) (n int, err error) {
 	}()
 	if err != nil {
 		w.errMu.Lock()
-		if w.err == nil {
-			w.err = err
-		}
+		w.err = errors.Join(w.err, err)
 		w.errMu.Unlock()
 		if w.onError != nil {
 			func() { defer func() { _ = recover() }(); w.onError(err) }()
@@ -118,7 +116,10 @@ func (w *Writer) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	if w.closed {
 		w.mu.Unlock()
-		return 0, ErrClosed
+		if w.onError != nil {
+			func() { defer func() { _ = recover() }(); w.onError(ErrClosed) }()
+		}
+		return w.write(p)
 	}
 	owned := append([]byte(nil), p...)
 	select {
@@ -144,10 +145,17 @@ func (w *Writer) pendingWrites() []chan struct{} {
 	}
 	return pending
 }
-func (w *Writer) errors() error { w.errMu.Lock(); defer w.errMu.Unlock(); return w.err }
+func (w *Writer) errors() error {
+	w.errMu.Lock()
+	defer w.errMu.Unlock()
+	err := w.err
+	w.err = nil
+	return err
+}
 
 // Flush waits for previously admitted writes or returns the context error.
-// It returns the first write error; onError receives every individual error.
+// It returns and resets joined write errors since the previous Flush or Close.
+// onError receives every individual error.
 // After Close finishes it returns immediately, including after write panics.
 func (w *Writer) Flush(ctx context.Context) error {
 	barrier := make(chan struct{})

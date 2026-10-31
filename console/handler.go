@@ -7,14 +7,12 @@ package console
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"maps"
 	"runtime"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/altessa-s/go-slogx"
@@ -26,7 +24,7 @@ type Handler struct {
 	mu       *sync.Mutex
 	opts     *options
 	groups   []string
-	captured []string
+	captured []byte
 }
 
 // New constructs a console sink. A nil writer returns an error.
@@ -50,7 +48,14 @@ func (h *Handler) Enabled(_ context.Context, level slog.Level) bool {
 
 // Handle formats every value on the calling goroutine before writing bytes.
 func (h *Handler) Handle(_ context.Context, r slog.Record) error {
-	parts := make([]string, 0, 4+len(h.captured)+r.NumAttrs())
+	buffer := buffers.Get().(*[]byte) //nolint:errcheck // the pool stores only byte slice pointers
+	parts := (*buffer)[:0]
+	defer func() {
+		if cap(parts) <= maxPooledCapacity {
+			*buffer = parts[:0]
+			buffers.Put(buffer)
+		}
+	}()
 	if !r.Time.IsZero() {
 		parts = h.appendAttr(parts, nil, slog.Time(slog.TimeKey, r.Time))
 	}
@@ -60,18 +65,23 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 		parts = h.appendAttr(parts, nil, slog.Any(slog.SourceKey, &slog.Source{Function: frame.Function, File: frame.File, Line: frame.Line}))
 	}
 	parts = h.appendAttr(parts, nil, slog.String(slog.MessageKey, r.Message))
-	parts = append(parts, h.captured...)
+	if len(h.captured) > 0 {
+		if len(parts) > 0 {
+			parts = append(parts, ' ')
+		}
+		parts = append(parts, h.captured...)
+	}
 	r.Attrs(func(a slog.Attr) bool { parts = h.appendAttr(parts, h.groups, a); return true })
-	line := []byte(strings.Join(parts, " ") + "\n")
+	parts = append(parts, '\n')
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	n, err := h.writer.Write(line)
-	if err == nil && n != len(line) {
+	n, err := h.writer.Write(parts)
+	if err == nil && n != len(parts) {
 		return io.ErrShortWrite
 	}
 	return err
 }
-func (h *Handler) appendAttr(parts, groups []string, a slog.Attr) []string {
+func (h *Handler) appendAttr(parts []byte, groups []string, a slog.Attr) []byte {
 	a.Value = a.Value.Resolve()
 	if a.Value.Kind() != slog.KindGroup && h.opts.replaceAttr != nil {
 		a = h.opts.replaceAttr(slices.Clone(groups), a)
@@ -89,34 +99,60 @@ func (h *Handler) appendAttr(parts, groups []string, a slog.Attr) []string {
 		}
 		return parts
 	}
-	key := a.Key
-	if len(groups) > 0 {
-		key = strings.Join(groups, ".") + "." + key
+
+	if len(parts) > 0 {
+		parts = append(parts, ' ')
 	}
+	style := Plain
+	if h.opts.color {
+		style = h.opts.keyStyles[a.Key]
+		if style == Plain {
+			switch a.Key {
+			case slogx.ErrorKey:
+				style = Red
+			case slog.LevelKey:
+				style = Cyan
+			case h.opts.prefixKey:
+				style = Blue
+			}
+		}
+	}
+	colored := style == Red || style == Green || style == Yellow || style == Blue || style == Cyan
+	if colored {
+		parts = append(parts, "\x1b["...)
+		parts = strconv.AppendInt(parts, int64(style), 10)
+		parts = append(parts, 'm')
+	}
+	// Quote each segment into one key without allocating a joined path.
+	parts = append(parts, '"')
+	for _, group := range groups {
+		start := len(parts)
+		parts = strconv.AppendQuote(parts, group)
+		parts = append(parts[:start], parts[start+1:len(parts)-1]...)
+		parts = append(parts, '.')
+	}
+	start := len(parts)
+	parts = strconv.AppendQuote(parts, a.Key)
+	parts = append(parts[:start], parts[start+1:]...)
+	parts = append(parts, '=')
 	value := a.Value.String()
 	if a.Value.Kind() == slog.KindTime {
 		value = a.Value.Time().Format(h.opts.timeFormat)
-	}
-	text := strconv.Quote(key) + "=" + strconv.Quote(value)
-	if h.opts.color {
-		style := h.opts.keyStyles[a.Key]
-		if style == Plain && a.Key == slogx.ErrorKey {
-			style = Red
-		}
-		if style == Plain && a.Key == slog.LevelKey {
-			style = Cyan
-		}
-		if style == Plain && a.Key == h.opts.prefixKey {
-			style = Blue
-		}
-		switch style {
-		default: // Unknown styles emit no escape sequence.
-		case Red, Green, Yellow, Blue, Cyan:
-			text = fmt.Sprintf("\x1b[%dm%s\x1b[0m", style, text)
+	} else if a.Value.Kind() == slog.KindAny {
+		if source, ok := a.Value.Any().(*slog.Source); ok && source != nil {
+			value = source.File + ":" + strconv.Itoa(source.Line)
 		}
 	}
-	return append(parts, text)
+	parts = strconv.AppendQuote(parts, value)
+	if colored {
+		parts = append(parts, "\x1b[0m"...)
+	}
+	return parts
 }
+
+const maxPooledCapacity = 64 * 1024
+
+var buffers = sync.Pool{New: func() any { b := make([]byte, 0, 1024); return &b }}
 
 // WithAttrs formats captured attributes immediately, as slog handlers require.
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {

@@ -157,6 +157,7 @@ func FuzzURL(f *testing.F) {
 		require.NoError(t, err)
 		require.Nil(t, u.User)
 		require.Empty(t, u.Fragment)
+		require.Contains(t, []string{"", "/", "/********"}, u.Path)
 		for _, values := range u.Query() {
 			for _, value := range values {
 				require.Equal(t, "********", value)
@@ -197,4 +198,21 @@ func TestPatternFactoryAndMaskBoundaries(t *testing.T) {
 	require.Equal(t, "+155******67", mask.Phone()("+15551234567"))
 	require.Equal(t, "********", mask.Phone()("123"))
 	require.Equal(t, "4111**********11", mask.CreditCard()("4111111111111111"))
+}
+
+func TestH3RegexpCallbackFailsClosed(t *testing.T) {
+	t.Parallel()
+	m, err := mask.Regexp(".", func(string) string { panic("private panic") })
+	require.NoError(t, err)
+	require.Equal(t, "********", m("private"))
+}
+func TestL8URLMasksLastSegment(t *testing.T) {
+	t.Parallel()
+	for _, input := range []string{"https://host/private-identifier", "https://host/parent/private-identifier"} {
+		output, err := url.Parse(mask.URL()(input))
+		require.NoError(t, err)
+		require.Equal(t, "https", output.Scheme)
+		require.Equal(t, "host", output.Host)
+		require.Equal(t, "/********", output.Path)
+	}
 }

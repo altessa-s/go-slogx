@@ -17,9 +17,10 @@ import (
 // Handler filters records using a live default and static subsystem overrides.
 type Handler struct {
 	handlerbase.Base
-	opts      *options
-	subsystem string
-	captured  bool
+	opts            *options
+	subsystem       string
+	captured        bool
+	minimumOverride slog.Level
 }
 
 // New constructs a handler. A nil next handler returns an error.
@@ -32,24 +33,28 @@ func New(next slog.Handler, opts ...Option) (*Handler, error) {
 		o.defaultLevel = DefaultLevel
 	}
 	o.subsystemLevels = maps.Clone(o.subsystemLevels)
-	return &Handler{Base: handlerbase.NewBase(next), opts: o}, nil
+	floor := slogx.LevelOff
+	for _, level := range o.subsystemLevels {
+		floor = min(floor, level)
+	}
+	return &Handler{Base: handlerbase.NewBase(next), opts: o, minimumOverride: floor}, nil
 }
 
-type minimum struct{ opts *options }
+type minimum struct {
+	opts     *options
+	override slog.Level
+}
 
 func (m minimum) Level() slog.Level {
 	level := m.opts.defaultLevel.Level()
 	if level == slogx.LevelOff {
 		return level
 	}
-	for _, v := range m.opts.subsystemLevels {
-		level = min(level, v)
-	}
-	return level
+	return min(level, m.override)
 }
 
 // MinLevel returns a live floor for the downstream sink's Enabled method.
-func (h *Handler) MinLevel() slog.Leveler { return minimum{h.opts} }
+func (h *Handler) MinLevel() slog.Leveler { return minimum{h.opts, h.minimumOverride} }
 func (h *Handler) threshold(name string) slog.Level {
 	level := h.opts.defaultLevel.Level()
 	if level == slogx.LevelOff {
@@ -94,7 +99,7 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 // WithAttrs captures only ungrouped subsystem attributes.
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	c := *h
-	c.Base = h.WithAttrsBase(attrs)
+	c.Base = h.AttrsBase(attrs)
 	if !c.captured && len(h.Groups()) == 0 {
 		for _, a := range attrs {
 			if a.Key == h.opts.subsystemKey && a.Value.Kind() == slog.KindString {
@@ -113,6 +118,6 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 		return h
 	}
 	c := *h
-	c.Base = h.WithGroupBase(name)
+	c.Base = h.GroupBase(name)
 	return &c
 }

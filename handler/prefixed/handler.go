@@ -13,7 +13,7 @@ import (
 )
 
 // Handler wraps a [slog.Handler] to extract and format prefixes from log records.
-// Prefix values are string attributes under the key set with [WithPrefix]; they are
+// Prefix values are string attributes under the key set with [WithKey]; they are
 // removed from the output attributes and replaced by one formatted prefix attribute
 // per group level, at the level they were attached to.
 type Handler struct {
@@ -28,7 +28,10 @@ type Handler struct {
 //
 // Example:
 //
-//	h := prefixed.New(slog.NewTextHandler(os.Stdout, nil))
+//	h, err := prefixed.New(slog.NewTextHandler(os.Stdout, nil))
+//	if err != nil {
+//	    return err
+//	}
 //	logger := slog.New(h)
 func New(next slog.Handler, opts ...Option) (*Handler, error) {
 	if next == nil {
@@ -86,7 +89,7 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	p, remaining := h.extractPrefixes(attrs)
 	return &Handler{
-		Base:     h.WithAttrsBase(remaining),
+		Base:     h.AttrsBase(remaining),
 		opts:     h.opts,
 		prefixes: p,
 	}
@@ -103,10 +106,10 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	}
 	b := h.Base
 	if attr, ok := h.prefixAttr(h.prefixes); ok {
-		b = h.WithAttrsBase([]slog.Attr{attr})
+		b = h.AttrsBase([]slog.Attr{attr})
 	}
 	return &Handler{
-		Base: b.WithGroupBase(name),
+		Base: b.GroupBase(name),
 		opts: h.opts,
 	}
 }

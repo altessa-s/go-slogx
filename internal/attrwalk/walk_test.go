@@ -82,7 +82,7 @@ func TestWalkerKindsAndFailClosed(t *testing.T) {
 	for i := range array {
 		array[i] = i
 	}
-	require.Len(t, w.Attr(slog.Any("array", array), nil).Value.Group(), 70)
+	require.Equal(t, array, w.Attr(slog.Any("array", array), nil).Value.Any())
 	var nested any = p
 	for range 15 {
 		nested = []any{nested}

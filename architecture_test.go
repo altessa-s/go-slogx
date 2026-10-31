@@ -144,14 +144,14 @@ func TestGoModPurity(t *testing.T) {
 func TestProductionConstraints(t *testing.T) {
 	t.Parallel()
 	for _, root := range moduleRoots(t) {
-		for _, file := range goFiles(t, root, false) {
+		for _, file := range goFiles(t, root, true) {
 			fset := token.NewFileSet()
-			f, err := parser.ParseFile(fset, file.path, nil, 0)
+			f, err := parser.ParseFile(fset, file.path, nil, parser.ParseComments)
 			require.NoError(t, err)
 			ast.Inspect(f, func(n ast.Node) bool {
 				switch node := n.(type) {
 				case *ast.GenDecl:
-					if node.Tok.String() != "var" {
+					if node.Tok != token.VAR || strings.HasSuffix(file.rel, "_test.go") {
 						return true
 					}
 					for _, spec := range node.Specs {
@@ -160,7 +160,7 @@ func TestProductionConstraints(t *testing.T) {
 							continue
 						}
 						for _, name := range vs.Names {
-							if name.IsExported() && !strings.HasPrefix(name.Name, "Err") {
+							if name.IsExported() && !errorSentinel(vs, f) {
 								t.Errorf("%s exports mutable %s", file.rel, name.Name)
 							}
 						}
@@ -169,7 +169,8 @@ func TestProductionConstraints(t *testing.T) {
 					if node.Recv == nil && node.Name.Name == "init" {
 						t.Errorf("%s declares init", file.rel)
 					}
-					if node.Recv == nil && handwrittenWith(node.Name.Name) && !strings.HasSuffix(file.rel, "options_gen.go") {
+					if handwrittenWith(node.Name.Name) && !ast.IsGenerated(f) &&
+						!(node.Recv != nil && (node.Name.Name == "WithAttrs" || node.Name.Name == "WithGroup")) {
 						t.Errorf("%s declares hand-written %s", file.rel, node.Name.Name)
 					}
 				}
@@ -476,5 +477,118 @@ func TestRemovedAPIs(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestH1BlackBoxPackages requires explicit filenames for internal test access.
+func TestH1BlackBoxPackages(t *testing.T) {
+	t.Parallel()
+	for _, root := range moduleRoots(t) {
+		for _, file := range goFiles(t, root, true) {
+			if !strings.HasSuffix(file.rel, "_test.go") || strings.HasSuffix(file.rel, "_internal_test.go") {
+				continue
+			}
+			f, err := parser.ParseFile(token.NewFileSet(), file.path, nil, parser.PackageClauseOnly)
+			require.NoError(t, err)
+			require.True(t, strings.HasSuffix(f.Name.Name, "_test"), "%s must use an external test package", file.rel)
+		}
+	}
+}
+
+func errorSentinel(v *ast.ValueSpec, file *ast.File) bool {
+	if len(v.Names) != 1 || len(v.Values) != 1 {
+		return false
+	}
+	name := v.Names[0].Name
+	if len(name) <= len("Err") || !strings.HasPrefix(name, "Err") || name[3] < 'A' || name[3] > 'Z' {
+		return false
+	}
+	call, ok := v.Values[0].(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	imported := ""
+	for _, imp := range file.Imports {
+		value, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			continue
+		}
+		alias := path.Base(value)
+		if imp.Name != nil {
+			alias = imp.Name.Name
+		}
+		if alias == pkg.Name {
+			imported = value
+		}
+	}
+	if imported == "errors" && sel.Sel.Name == "New" {
+		return len(call.Args) == 1
+	}
+	if imported != "fmt" || sel.Sel.Name != "Errorf" || len(call.Args) == 0 {
+		return false
+	}
+	literal, ok := call.Args[0].(*ast.BasicLit)
+	if !ok || literal.Kind != token.STRING {
+		return false
+	}
+	format, err := strconv.Unquote(literal.Value)
+	// Reject all wrapping forms, including indexed and width-qualified verbs.
+	return err == nil && !wrapsError(format)
+}
+
+func wrapsError(format string) bool {
+	for i := 0; i < len(format); i++ {
+		if format[i] != '%' {
+			continue
+		}
+		i++
+		if i < len(format) && format[i] == '%' {
+			continue
+		}
+		for ; i < len(format); i++ {
+			c := format[i]
+			if c == 'w' {
+				return true
+			}
+			if c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' {
+				break
+			}
+		}
+	}
+	return false
+}
+
+func TestH1ErrorSentinelPolicy(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		decl    string
+		allowed bool
+	}{
+		{`var ErrValid = errors.New("failure")`, true},
+		{`var ErrWarning = fmt.Errorf("warning: %s", "failure")`, true},
+		{`var ErrWrapped = fmt.Errorf("%[1]w", err)`, false},
+		{`var ErrWrapped = fmt.Errorf("%10w", err)`, false},
+		{`var ErrEscaped = fmt.Errorf("%%w")`, true},
+		{`var Error = errors.New("failure")`, false},
+		{`var ErrMap = map[string]string{}`, false},
+		{`var ErrAlias = another`, false},
+		{`var ErrOne, ErrTwo = errors.New("one"), errors.New("two")`, false},
+		{`var ErrDynamic = fmt.Errorf(format)`, false},
+	} {
+		f, err := parser.ParseFile(token.NewFileSet(), "policy.go", "package policy; import (\"errors\"; \"fmt\");"+tc.decl, 0)
+		require.NoError(t, err)
+		declaration, ok := f.Decls[1].(*ast.GenDecl)
+		require.True(t, ok)
+		v, ok := declaration.Specs[0].(*ast.ValueSpec)
+		require.True(t, ok)
+		require.Equal(t, tc.allowed, errorSentinel(v, f), tc.decl)
 	}
 }

@@ -61,6 +61,12 @@ func New(w io.Writer, opts ...Option) (*Logger, error) {
 		l.buffer = buffer
 		w = buffer
 	}
+	success := false
+	defer func() {
+		if !success && l.buffer != nil {
+			_ = l.buffer.Close(context.Background())
+		}
+	}()
 	var sink slog.Handler
 	switch {
 	case o.sink != nil:
@@ -75,10 +81,10 @@ func New(w io.Writer, opts ...Option) (*Logger, error) {
 		sink, err = console.New(w, console.WithLevel(floor), console.WithColor(color),
 			console.WithAddSource(o.addSource), console.WithTimeFormat(o.timeFormat), console.WithPrefixKey(o.subsystemKey))
 	}
-	if err != nil || sink == nil {
-		if l.buffer != nil {
-			_ = l.buffer.Close(context.Background())
-		}
+	if err != nil {
+		return nil, err
+	}
+	if sink == nil {
 		return nil, errors.New("setup: custom sink returned nil")
 	}
 	if l.buffer != nil {
@@ -92,9 +98,6 @@ func New(w io.Writer, opts ...Option) (*Logger, error) {
 	}
 	sink, err = masking.New(sink, maskOpts...)
 	if err != nil {
-		if l.buffer != nil {
-			_ = l.buffer.Close(context.Background())
-		}
 		return nil, err
 	}
 	sink, err = leveled.New(sink, levelOpts...)
@@ -118,6 +121,7 @@ func New(w io.Writer, opts ...Option) (*Logger, error) {
 	if len(o.tags) > 0 {
 		l.logger = l.logger.With(coremaps.ToSortedKeyValueSlice(o.tags)...)
 	}
+	success = true
 	return l, nil
 }
 

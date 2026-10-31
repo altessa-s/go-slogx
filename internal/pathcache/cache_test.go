@@ -24,7 +24,7 @@ func TestBoundedConcurrentCache(t *testing.T) {
 	n, ok := c.Get("first")
 	require.True(t, ok)
 	require.Equal(t, 1, n)
-	for i := range 4096 {
+	for i := range 16384 {
 		c.Put(strconv.Itoa(i), i)
 	}
 	_, ok = c.Get("first")

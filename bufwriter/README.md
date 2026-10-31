@@ -14,6 +14,7 @@ exited. `Close` drains, honors the context, and is idempotent.
 `New(writer, opts...)` returns `(*Writer, error)`. `WithSize` requires a positive
 capacity. `WithOnError` receives every asynchronous or synchronous write failure;
 the callback must be concurrency-safe and must not reenter the writer. Flush and
-Close return the first write failure. Panic payloads are not included in errors.
+Close return and clear joined failures since the preceding drain. Panic payloads are not included in errors.
 Overflow can reorder output; ordering checks must avoid overflow. Underlying
 writes cannot be forcibly canceled, but lifecycle waits honor their contexts.
+After Close, Write uses the sink synchronously and reports ErrClosed to onError once per write; the return value is the sink result.

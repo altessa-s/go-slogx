@@ -144,6 +144,9 @@ func InjectFields(ctx context.Context, f Fields) context.Context {
 // AppendField appends a field to the [Fields] previously stored via [InjectFields].
 // No-op if no fields have been injected. Safe for concurrent use.
 func AppendField(ctx context.Context, key string, value any) {
+	if ctx == nil {
+		return
+	}
 	fw, ok := ctx.Value(fieldsContextKey{}).(*fieldsWrapper)
 	if !ok || fw == nil {
 		return
@@ -156,6 +159,9 @@ func AppendField(ctx context.Context, key string, value any) {
 // AppendFields appends multiple fields to the [Fields] previously stored via [InjectFields].
 // No-op if no fields have been injected. Safe for concurrent use.
 func AppendFields(ctx context.Context, f Fields) {
+	if ctx == nil {
+		return
+	}
 	fw, ok := ctx.Value(fieldsContextKey{}).(*fieldsWrapper)
 	if !ok || fw == nil {
 		return

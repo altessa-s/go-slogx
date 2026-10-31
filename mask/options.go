@@ -7,7 +7,6 @@ package mask
 // options configures an immutable catalog. Maps are copied at construction.
 //
 //go:generate optgen generate --keep-empty-strings --no-default-modifiers
-//go:generate sh ../docs/generated-header.sh options_gen.go
 type options struct {
 	builtins  bool `optgen:"default=DefaultBuiltins" optval:"param"`
 	masks     map[string]Func

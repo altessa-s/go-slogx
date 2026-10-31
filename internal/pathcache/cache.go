@@ -4,35 +4,45 @@
 
 package pathcache
 
-import "sync"
+import (
+	"hash/maphash"
+	"sync"
+)
 
 // Cache stores bounded path decisions. Its zero value is usable.
 type Cache[T any] struct {
+	shards [16]shard[T]
+}
+type shard[T any] struct {
 	mu      sync.RWMutex
 	entries map[string]T
 }
 
 // Get returns a cached decision.
 func (c *Cache[T]) Get(key string) (T, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	v, ok := c.entries[key]
+	shard := &c.shards[maphash.Comparable(cacheSeed, key)%uint64(len(c.shards))]
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+	v, ok := shard.entries[key]
 	return v, ok
 }
 
-// Put stores a decision, resetting the epoch at 4096 entries.
+// Put stores a decision, resetting each shard at 256 entries (4096 total).
 // Paths longer than 256 bytes are deliberately not retained.
 func (c *Cache[T]) Put(key string, v T) {
 	if len(key) > maxPathBytes {
 		return
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.entries == nil || len(c.entries) >= maxEntries {
-		c.entries = make(map[string]T)
+	shard := &c.shards[maphash.Comparable(cacheSeed, key)%uint64(len(c.shards))]
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+	if shard.entries == nil || len(shard.entries) >= maxEntries/len(c.shards) {
+		shard.entries = make(map[string]T)
 	}
-	c.entries[key] = v
+	shard.entries[key] = v
 }
 
 const maxPathBytes = 256
 const maxEntries = 4096
+
+var cacheSeed = maphash.MakeSeed()

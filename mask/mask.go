@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"path"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -91,7 +90,7 @@ func Phone() Func {
 // CreditCard preserves four leading and two trailing runes of a card number.
 func CreditCard() Func { partial, _ := Partial(visiblePrefix, visibleSuffix, '*'); return partial }
 
-// URL removes userinfo, query values and fragments and masks intermediate paths.
+// URL removes userinfo, query values and fragments and masks the entire path (including the last segment).
 // Malformed, relative and opaque URLs fail closed.
 func URL() Func {
 	return func(s string) string {
@@ -116,7 +115,7 @@ func URL() Func {
 		}
 		u.RawQuery = q.Encode()
 		if u.Path != "" && u.Path != "/" {
-			u.Path = "/********/" + path.Base(u.Path)
+			u.Path = "/********"
 		}
 		u.RawPath = ""
 		return u.String()
@@ -132,7 +131,12 @@ func Regexp(pattern string, m Func) (Func, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrParams, err)
 	}
-	return func(s string) string {
+	return func(s string) (result string) {
+		defer func() {
+			if recover() != nil {
+				result = "********"
+			}
+		}()
 		if re.MatchString(s) {
 			return m(s)
 		}

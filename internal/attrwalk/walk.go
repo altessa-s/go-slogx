@@ -19,6 +19,8 @@ import (
 )
 
 const maxMaskDescentDepth = 10
+const maxContainerBreadth = 256
+const breadthLimitPlaceholder = "<masking: max breadth exceeded>"
 const depthLimitPlaceholder = "<masking: max depth exceeded>"
 
 // Walker resolves attributes and masks nested structures within a depth budget.
@@ -68,16 +70,19 @@ func (h *Walker) maskAttributeDepth(attr slog.Attr, groups []string, depth int) 
 	// same storage mid-walk.
 	if attr.Value.Kind() == slog.KindGroup {
 		groupAttrs := attr.Value.Group()
-		maskedGroup := make([]slog.Attr, 0, len(groupAttrs))
+		maskedGroup := make([]slog.Attr, 0, min(len(groupAttrs), maxContainerBreadth)+1)
 		childGroups := groups
 		if attr.Key != "" {
 			childGroups = slices.Concat(groups, []string{attr.Key})
 		}
 
-		for _, ga := range groupAttrs {
+		for _, ga := range groupAttrs[:min(len(groupAttrs), maxContainerBreadth)] {
 			maskedGroup = append(maskedGroup, h.maskAttributeDepth(ga, childGroups, depth+1))
 		}
 
+		if len(groupAttrs) > maxContainerBreadth {
+			maskedGroup = append(maskedGroup, slog.String("...", breadthLimitPlaceholder))
+		}
 		return slog.Attr{Key: attr.Key, Value: slog.GroupValue(maskedGroup...)}
 	}
 
@@ -104,9 +109,8 @@ func (h *Walker) maskAttributeDepth(attr slog.Attr, groups []string, depth int) 
 
 // descendIntoAny walks a KindAny attribute via reflection and returns a
 // new attribute with sensitive subfields masked. The bool result is
-// false when descent is impossible (nil value, primitive type, or a
-// well-known atomic type like time.Time) — the caller should keep the
-// original attribute in that case.
+// false when no leaf changed or descent is unnecessary (nil or atomic values).
+// The caller keeps the original attribute in that case.
 func (h *Walker) descendIntoAny(key string, value slog.Value, groups []string, depth int) (slog.Attr, bool) {
 	raw := value.Any()
 	if raw == nil {
@@ -128,8 +132,8 @@ func (h *Walker) descendIntoAny(key string, value slog.Value, groups []string, d
 
 // walkAny is the reflect-driven recursive walker used by descendIntoAny.
 // Returns (slog.Value, true) when descent rebuilt the value, or
-// (zero, false) when the value is atomic (and the caller should keep
-// the original). Depth is bounded by [maxMaskDescentDepth].
+// (zero, false) when the value is unchanged (the caller keeps the original).
+// Depth and per-container breadth are bounded.
 func (h *Walker) walkAny(rv reflect.Value, groups []string, depth int) (slog.Value, bool) {
 	if !rv.IsValid() || depth >= maxMaskDescentDepth {
 		return slog.Value{}, false
@@ -202,9 +206,12 @@ func (h *Walker) maskResolvedValue(value slog.Value, groups []string, depth int)
 	switch value.Kind() {
 	case slog.KindGroup:
 		attrs := value.Group()
-		masked := make([]slog.Attr, len(attrs))
-		for i, attr := range attrs {
-			masked[i] = h.maskAttributeDepth(attr, groups, depth+1)
+		masked := make([]slog.Attr, 0, min(len(attrs), maxContainerBreadth)+1)
+		for _, attr := range attrs[:min(len(attrs), maxContainerBreadth)] {
+			masked = append(masked, h.maskAttributeDepth(attr, groups, depth+1))
+		}
+		if len(attrs) > maxContainerBreadth {
+			masked = append(masked, slog.String("...", breadthLimitPlaceholder))
 		}
 		return slog.GroupValue(masked...)
 	case slog.KindAny:
@@ -253,8 +260,9 @@ func hasMaskableSubstructure(rv reflect.Value) bool {
 // value as a slog group with masked fields where rules match.
 func (h *Walker) walkStruct(rv reflect.Value, groups []string, depth int) (slog.Value, bool) {
 	t := rv.Type()
-	attrs := make([]slog.Attr, 0, rv.NumField())
-	for i := range rv.NumField() {
+	attrs := make([]slog.Attr, 0, min(rv.NumField(), maxContainerBreadth)+1)
+	changed := false
+	for i := range min(rv.NumField(), maxContainerBreadth) {
 		ft := t.Field(i)
 		if !ft.IsExported() {
 			continue
@@ -263,13 +271,19 @@ func (h *Walker) walkStruct(rv reflect.Value, groups []string, depth int) (slog.
 		if name == "" { // json:"-"
 			continue
 		}
-		attrs = append(attrs, h.attrForField(name, rv.Field(i), groups, depth))
+		a, masked := h.attrForField(name, rv.Field(i), groups, depth)
+		changed = changed || masked
+		attrs = append(attrs, a)
 	}
 	// No exported fields: nothing to mask or rebuild. An empty group would
 	// replace the value, and slog drops empty groups — so the attribute would
 	// vanish. Signal "not rebuilt" so the caller keeps the original and lets the
 	// downstream handler render it canonically (e.g. an error via Error()).
-	if len(attrs) == 0 {
+	if rv.NumField() > maxContainerBreadth {
+		attrs = append(attrs, slog.String("...", breadthLimitPlaceholder))
+		changed = true
+	}
+	if !changed {
 		return slog.Value{}, false
 	}
 	return slog.GroupValue(attrs...), true
@@ -282,15 +296,22 @@ func (h *Walker) walkMap(rv reflect.Value, groups []string, depth int) (slog.Val
 	if rv.Type().Key().Kind() != reflect.String {
 		return slog.Value{}, false
 	}
-	attrs := make([]slog.Attr, 0, rv.Len())
-	for iter := rv.MapRange(); iter.Next(); {
+	attrs := make([]slog.Attr, 0, min(rv.Len(), maxContainerBreadth)+1)
+	changed := false
+	for iter := rv.MapRange(); len(attrs) < maxContainerBreadth && iter.Next(); {
 		key := iter.Key().String()
-		attrs = append(attrs, h.attrForField(key, iter.Value(), groups, depth))
+		a, masked := h.attrForField(key, iter.Value(), groups, depth)
+		changed = changed || masked
+		attrs = append(attrs, a)
 	}
 	// Same empty-group hazard as walkStruct: an empty map rebuilds to an empty
 	// group, which slog omits — the attribute would vanish. Signal "not rebuilt"
 	// so the caller keeps the original and it renders canonically (e.g. map[]).
-	if len(attrs) == 0 {
+	if rv.Len() > maxContainerBreadth {
+		attrs = append(attrs, slog.String("...", breadthLimitPlaceholder))
+		changed = true
+	}
+	if !changed {
 		return slog.Value{}, false
 	}
 	return slog.GroupValue(attrs...), true
@@ -301,17 +322,20 @@ func (h *Walker) walkMap(rv reflect.Value, groups []string, depth int) (slog.Val
 // is preserved. The index is used as the attr key so consumers can map
 // each masked leaf back to its original position.
 func (h *Walker) walkSlice(rv reflect.Value, groups []string, depth int) (slog.Value, bool) {
-	attrs := make([]slog.Attr, 0, rv.Len())
-	for i := range rv.Len() {
+	attrs := make([]slog.Attr, 0, min(rv.Len(), maxContainerBreadth)+1)
+	changed := false
+	for i := range min(rv.Len(), maxContainerBreadth) {
 		elem := rv.Index(i)
 		key := sliceIndexKey(i)
 		if nested, ok := h.walkAny(elem, groups, depth+1); ok {
+			changed = true
 			attrs = append(attrs, slog.Attr{Key: key, Value: nested})
 			continue
 		}
 		// Same split as attrForField: an atomic element is safe to pass
 		// through, one the depth limit cut off is not.
 		if depth+1 >= maxMaskDescentDepth && hasMaskableSubstructure(elem) {
+			changed = true
 			attrs = append(attrs, slog.String(key, depthLimitPlaceholder))
 			continue
 		}
@@ -321,7 +345,11 @@ func (h *Walker) walkSlice(rv reflect.Value, groups []string, depth int) (slog.V
 	// Same empty-group hazard as walkStruct: an empty slice/array rebuilds to an
 	// empty group, which slog omits — the attribute would vanish. Signal "not
 	// rebuilt" so the caller keeps the original and it renders canonically (e.g. []).
-	if len(attrs) == 0 {
+	if rv.Len() > maxContainerBreadth {
+		attrs = append(attrs, slog.String("...", breadthLimitPlaceholder))
+		changed = true
+	}
+	if !changed {
 		return slog.Value{}, false
 	}
 	return slog.GroupValue(attrs...), true
@@ -347,9 +375,9 @@ func sliceIndexKey(i int) string {
 // attrForField checks whether the supplied field matches a mask rule
 // and, if so, applies it to the stringified value. Otherwise it
 // recurses via walkAny (or passes the leaf through unchanged).
-func (h *Walker) attrForField(name string, field reflect.Value, parentGroups []string, depth int) slog.Attr {
+func (h *Walker) attrForField(name string, field reflect.Value, parentGroups []string, depth int) (slog.Attr, bool) {
 	if value, ok := reflectedLogValue(field); ok {
-		return h.maskAttributeDepth(slog.Attr{Key: name, Value: value}, parentGroups, depth+1)
+		return h.maskAttributeDepth(slog.Attr{Key: name, Value: value}, parentGroups, depth+1), true
 	}
 	fieldPath := h.buildFieldPath(parentGroups, name)
 	if mask := h.Match(name, fieldPath); mask != nil {
@@ -361,27 +389,27 @@ func (h *Walker) attrForField(name string, field reflect.Value, parentGroups []s
 		if field.CanInterface() {
 			v = field.Interface()
 		}
-		return slog.String(name, mask(fmt.Sprint(v)))
+		return slog.String(name, invokeMask(mask, fmt.Sprint(v))), true
 	}
 	// slices.Concat allocates a fresh backing array — recursive walks
 	// otherwise share parentGroups' storage and a sibling branch can
 	// overwrite an earlier child's path mid-walk.
 	childGroups := slices.Concat(parentGroups, []string{name})
 	if nested, ok := h.walkAny(field, childGroups, depth+1); ok {
-		return slog.Attr{Key: name, Value: nested}
+		return slog.Attr{Key: name, Value: nested}, true
 	}
 	// walkAny reports "not rebuilt" for two different reasons, and only one of
 	// them is safe to pass through: an atomic leaf has nothing maskable inside,
 	// while a value the depth limit cut off may have plenty.
 	if depth+1 >= maxMaskDescentDepth && hasMaskableSubstructure(field) {
-		return slog.String(name, depthLimitPlaceholder)
+		return slog.String(name, depthLimitPlaceholder), true
 	}
 	// Leaf: preserve the original value as-is so structured handlers
 	// (JSON, OTLP) render it natively.
 	if field.CanInterface() {
-		return slog.Any(name, field.Interface())
+		return slog.Any(name, field.Interface()), false
 	}
-	return slog.Attr{Key: name}
+	return slog.Attr{Key: name}, false
 }
 
 // structFieldName returns the name to use for a struct field in the
@@ -443,18 +471,18 @@ func isAtomicType(t reflect.Type) bool {
 func (h *Walker) applyMask(attr slog.Attr, mask mask.Func) slog.Attr {
 	switch attr.Value.Kind() {
 	case slog.KindString:
-		return slog.String(attr.Key, mask(attr.Value.String()))
+		return slog.String(attr.Key, invokeMask(mask, attr.Value.String()))
 
 	case slog.KindInt64, slog.KindUint64, slog.KindFloat64, slog.KindBool:
 		// Convert to string, mask, and keep as string
 		str := fmt.Sprint(attr.Value.Any())
-		return slog.String(attr.Key, mask(str))
+		return slog.String(attr.Key, invokeMask(mask, str))
 
 	case slog.KindDuration:
-		return slog.String(attr.Key, mask(attr.Value.Duration().String()))
+		return slog.String(attr.Key, invokeMask(mask, attr.Value.Duration().String()))
 
 	case slog.KindTime:
-		return slog.String(attr.Key, mask(attr.Value.Time().String()))
+		return slog.String(attr.Key, invokeMask(mask, attr.Value.Time().String()))
 
 	case slog.KindAny:
 		// Top-level key matched: mask the entire value as a single
@@ -462,11 +490,21 @@ func (h *Walker) applyMask(attr slog.Attr, mask mask.Func) slog.Attr {
 		// maskAttribute level via descendIntoAny / walkAny, which is
 		// where nested matches inside structs/maps/slices are found.
 		str := fmt.Sprint(attr.Value.Any())
-		return slog.String(attr.Key, mask(str))
+		return slog.String(attr.Key, invokeMask(mask, str))
 
 	default:
 		// For unknown types, convert to string and mask
 		str := fmt.Sprint(attr.Value.Any())
-		return slog.String(attr.Key, mask(str))
+		return slog.String(attr.Key, invokeMask(mask, str))
 	}
+}
+
+// invokeMask contains consumer callbacks and never exposes a panic payload.
+func invokeMask(fn mask.Func, value string) (result string) {
+	defer func() {
+		if recover() != nil {
+			result = "********"
+		}
+	}()
+	return fn(value)
 }

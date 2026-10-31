@@ -30,3 +30,21 @@ func BenchmarkJSONChain(b *testing.B) {
 		})
 	}
 }
+
+// L9 exercises the production text, masking, prefix and byte-buffer chain.
+func BenchmarkL9TextBufferedChain(b *testing.B) {
+	l, err := setup.New(io.Discard, setup.WithFormat(setup.Text), setup.WithBufferSize(256), setup.WithMaskDefaults(true))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() {
+		if err := l.Shutdown(b.Context()); err != nil {
+			b.Fatal(err)
+		}
+	}()
+	log := l.Logger().With("subsystem", "worker")
+	b.ReportAllocs()
+	for b.Loop() {
+		log.Info("completed", "count", 42, "payload", map[string]string{"status": "ok", "token": "private"})
+	}
+}

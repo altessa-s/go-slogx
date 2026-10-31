@@ -154,13 +154,13 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 // WithAttrs resolves and masks captured attributes on the caller goroutine.
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	if h.walker == nil {
-		return &Handler{Base: h.WithAttrsBase(attrs)}
+		return &Handler{Base: h.AttrsBase(attrs)}
 	}
 	out := make([]slog.Attr, len(attrs))
 	for i, a := range attrs {
 		out[i] = h.walker.Attr(a, h.Groups())
 	}
-	return &Handler{Base: h.WithAttrsBase(out), walker: h.walker}
+	return &Handler{Base: h.AttrsBase(out), walker: h.walker}
 }
 
 // WithGroup returns a derived handler or the receiver for an empty name.
@@ -168,5 +168,5 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
-	return &Handler{Base: h.WithGroupBase(name), walker: h.walker}
+	return &Handler{Base: h.GroupBase(name), walker: h.walker}
 }
