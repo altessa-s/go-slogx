@@ -114,3 +114,51 @@ func TestTypeVerdictsAndResolvedPointers(t *testing.T) {
 	ptr := &v
 	require.Equal(t, "safe", w.Attr(slog.Any("pointer", &ptr), nil).Value.String())
 }
+
+func TestMatchedCompoundConversionBudget(t *testing.T) {
+	t.Parallel()
+	cyclic := map[string]any{}
+	cyclic["self"] = cyclic
+	wide := make([]string, 300)
+	for _, input := range []any{cyclic, wide} {
+		for _, nested := range []bool{false, true} {
+			calls := 0
+			w := &attrwalk.Walker{Match: func(name, _ string) mask.Func {
+				if strings.EqualFold(name, "password") {
+					return func(s string) string { calls++; return s }
+				}
+				return nil
+			}}
+			attr := slog.Any("password", input)
+			if nested {
+				attr = slog.Any("payload", map[string]any{"password": input})
+			}
+			out := w.Attr(attr, nil)
+			require.Contains(t, fmt.Sprint(out), "exceeded")
+			require.Zero(t, calls)
+		}
+	}
+	w := &attrwalk.Walker{Match: func(_, _ string) mask.Func {
+		return func(s string) string { return "masked:" + s }
+	}}
+	for _, input := range []any{nil, (*string)(nil), []string{"safe"}, map[string]int{"safe": 1}, struct{ Public string }{"safe"}} {
+		require.Equal(t, "masked:"+fmt.Sprint(input), w.Attr(slog.Any("password", input), nil).Value.String())
+	}
+}
+
+func TestUnexportedEmbeddingTypeCacheFailsClosed(t *testing.T) {
+	t.Parallel()
+	type credentials struct{ Password string }
+	type valueEmbedding struct{ credentials }
+	type pointerEmbedding struct{ *credentials }
+	w := &attrwalk.Walker{
+		Match:     matcher,
+		Candidate: func(name string) bool { return strings.EqualFold(name, "password") },
+	}
+	for range 2 {
+		for _, input := range []any{valueEmbedding{credentials{"canary"}}, pointerEmbedding{&credentials{"canary"}}} {
+			out := w.Attr(slog.Any("payload", input), nil)
+			require.Equal(t, "<masking: unexported embedding>", out.Value.String())
+		}
+	}
+}

@@ -89,7 +89,7 @@ func (h *Walker) maskAttributeDepth(attr slog.Attr, groups []string, depth int) 
 	// Check if field should be masked
 	fieldPath := h.buildFieldPath(groups, attr.Key)
 	if mask := h.Match(attr.Key, fieldPath); mask != nil {
-		return h.applyMask(attr, mask)
+		return h.applyMask(attr, mask, depth)
 	}
 
 	// Top-level field name didn't match — but a KindAny value can hide
@@ -265,6 +265,9 @@ func (h *Walker) walkStruct(rv reflect.Value, groups []string, depth int) (slog.
 	for i := range min(rv.NumField(), maxContainerBreadth) {
 		ft := t.Field(i)
 		if !ft.IsExported() {
+			if ft.Anonymous {
+				return slog.StringValue("<masking: unexported embedding>"), true
+			}
 			continue
 		}
 		name := structFieldName(ft)
@@ -389,7 +392,7 @@ func (h *Walker) attrForField(name string, field reflect.Value, parentGroups []s
 		if field.CanInterface() {
 			v = field.Interface()
 		}
-		return slog.String(name, invokeMask(mask, fmt.Sprint(v))), true
+		return slog.String(name, maskAny(mask, v, depth+1)), true
 	}
 	// slices.Concat allocates a fresh backing array — recursive walks
 	// otherwise share parentGroups' storage and a sibling branch can
@@ -468,7 +471,7 @@ func isAtomicType(t reflect.Type) bool {
 }
 
 // applyMask applies the masking function to an attribute value
-func (h *Walker) applyMask(attr slog.Attr, mask mask.Func) slog.Attr {
+func (h *Walker) applyMask(attr slog.Attr, mask mask.Func, depth int) slog.Attr {
 	switch attr.Value.Kind() {
 	case slog.KindString:
 		return slog.String(attr.Key, invokeMask(mask, attr.Value.String()))
@@ -489,8 +492,7 @@ func (h *Walker) applyMask(attr slog.Attr, mask mask.Func) slog.Attr {
 		// string. Per-subfield masking for KindAny is handled at the
 		// maskAttribute level via descendIntoAny / walkAny, which is
 		// where nested matches inside structs/maps/slices are found.
-		str := fmt.Sprint(attr.Value.Any())
-		return slog.String(attr.Key, invokeMask(mask, str))
+		return slog.String(attr.Key, maskAny(mask, attr.Value.Any(), depth))
 
 	default:
 		// For unknown types, convert to string and mask

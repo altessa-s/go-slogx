@@ -15,3 +15,9 @@ Unmatched containers retain their original value and JSON shape. Each traversed 
 Non-string-keyed maps are replaced with `<masking: unsupported map keys>`,
 including with fields-only rules. Struct fields tagged `json:"-"` are omitted
 by rebuilding the container so native text formatting cannot reveal them.
+
+Unexported anonymous fields cause their container to be replaced with
+`<masking: unexported embedding>`, so promoted exported fields cannot leak.
+Matched compound values are checked before formatting using the depth budget
+and a total 256-node budget. Cycles or exhausted budgets emit a fixed
+placeholder without invoking the mask callback.

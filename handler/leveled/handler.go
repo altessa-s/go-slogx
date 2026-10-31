@@ -9,10 +9,13 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
+	"slices"
 
 	"github.com/altessa-s/go-slogx"
 	"github.com/altessa-s/go-slogx/internal/handlerbase"
 )
+
+const maxSubsystemDepth = 100
 
 // Handler filters records using a live default and static subsystem overrides.
 type Handler struct {
@@ -82,13 +85,16 @@ func (h *Handler) Enabled(ctx context.Context, level slog.Level) bool {
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 	name := h.subsystem
 	if !h.captured && len(h.Groups()) == 0 {
+		resolved := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
+		found := false
 		r.Attrs(func(a slog.Attr) bool {
-			if a.Key == h.opts.subsystemKey && a.Value.Kind() == slog.KindString {
-				name = a.Value.String()
-				return false
+			if !found {
+				a, name, found = h.resolveSubsystem(a)
 			}
+			resolved.AddAttrs(a)
 			return true
 		})
+		r = resolved
 	}
 	if !allowed(r.Level, h.threshold(name)) {
 		return nil
@@ -99,16 +105,16 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 // WithAttrs captures only ungrouped subsystem attributes.
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	c := *h
-	c.Base = h.AttrsBase(attrs)
 	if !c.captured && len(h.Groups()) == 0 {
-		for _, a := range attrs {
-			if a.Key == h.opts.subsystemKey && a.Value.Kind() == slog.KindString {
-				c.subsystem = a.Value.String()
-				c.captured = true
+		attrs = slices.Clone(attrs)
+		for i, a := range attrs {
+			attrs[i], c.subsystem, c.captured = h.resolveSubsystem(a)
+			if c.captured {
 				break
 			}
 		}
 	}
+	c.Base = h.AttrsBase(attrs)
 	return &c
 }
 
@@ -120,4 +126,38 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	c := *h
 	c.Base = h.GroupBase(name)
 	return &c
+}
+
+// resolveSubsystem follows only inline groups, matching the sink's top-level
+// namespace. Resolved values are forwarded so LogValuer runs only once.
+func (h *Handler) resolveSubsystem(a slog.Attr) (slog.Attr, string, bool) {
+	return h.resolveSubsystemDepth(a, 0)
+}
+
+func (h *Handler) resolveSubsystemDepth(a slog.Attr, depth int) (slog.Attr, string, bool) {
+	if a.Key != "" && a.Key != h.opts.subsystemKey {
+		return a, "", false
+	}
+	// Resolve bounds direct LogValuer chains; this bounds callbacks that
+	// instead return inline groups containing themselves.
+	if depth >= maxSubsystemDepth {
+		return slog.String(a.Key, "<leveled: max depth exceeded>"), "", false
+	}
+	a.Value = a.Value.Resolve()
+	if a.Key == h.opts.subsystemKey && a.Value.Kind() == slog.KindString {
+		return a, a.Value.String(), true
+	}
+	if a.Key == "" && a.Value.Kind() == slog.KindGroup {
+		attrs := slices.Clone(a.Value.Group())
+		for i, child := range attrs {
+			resolved, name, found := h.resolveSubsystemDepth(child, depth+1)
+			attrs[i] = resolved
+			if found {
+				a.Value = slog.GroupValue(attrs...)
+				return a, name, true
+			}
+		}
+		a.Value = slog.GroupValue(attrs...)
+	}
+	return a, "", false
 }

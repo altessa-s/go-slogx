@@ -55,6 +55,9 @@ func (h *Walker) computeTypeCanMatch(t reflect.Type, visiting map[reflect.Type]b
 		visiting[t] = true
 		for ft := range t.Fields() {
 			if !ft.IsExported() {
+				if ft.Anonymous {
+					return true
+				}
 				continue
 			}
 			name := structFieldName(ft)
