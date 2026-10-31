@@ -21,3 +21,13 @@ Unexported anonymous fields cause their container to be replaced with
 Matched compound values are checked before formatting using the depth budget
 and a total 256-node budget. Cycles or exhausted budgets emit a fixed
 placeholder without invoking the mask callback.
+
+TextMarshaler implementations do not bypass field traversal: JSON and console
+sinks do not invoke the same methods, and pointer methods may not apply to
+plain values. Matching fields are masked for both receiver forms.
+
+Exported anonymous struct and pointer fields without a JSON name (including
+options-only tags) replace their container with
+`<masking: promoted embedding>`. This conservative policy avoids approximating
+JSON promotion, shadowing, and ambiguous-field selection. Explicitly named
+embeddings retain ordinary nested field traversal.

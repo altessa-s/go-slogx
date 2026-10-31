@@ -162,3 +162,30 @@ func TestUnexportedEmbeddingTypeCacheFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+// EmbeddedPublic has no matching field; promotion must still invalidate the
+// fields-only fast path so its verdict agrees with the runtime walker.
+type EmbeddedPublic struct{ Public string }
+type EmbeddedScalar string
+
+func TestExportedEmbeddingTypeCacheFailsClosed(t *testing.T) {
+	t.Parallel()
+	w := &attrwalk.Walker{Match: matcher, Candidate: func(name string) bool { return name == "password" }}
+	for range 2 {
+		for _, input := range []any{
+			struct{ EmbeddedPublic }{EmbeddedPublic{"visible"}},
+			struct{ *EmbeddedPublic }{&EmbeddedPublic{"visible"}},
+		} {
+			require.Equal(t, "<masking: promoted embedding>", w.Attr(slog.Any("payload", input), nil).Value.String())
+		}
+	}
+	for _, input := range []any{
+		struct {
+			EmbeddedPublic `json:"named"`
+		}{EmbeddedPublic{"visible"}},
+		struct{ EmbeddedScalar }{EmbeddedScalar("visible")},
+	} {
+		attr := slog.Any("payload", input)
+		require.Equal(t, attr, w.Attr(attr, nil))
+	}
+}

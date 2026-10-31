@@ -61,7 +61,7 @@ func (h *Walker) computeTypeCanMatch(t reflect.Type, visiting map[reflect.Type]b
 				continue
 			}
 			name := structFieldName(ft)
-			if name == "" { // Omission requires rebuilding for text sinks too.
+			if name == "" || promotesStructFields(ft) { // Omission and promotion require rebuilding for all sinks.
 				return true
 			}
 			if h.fieldNameCanMatch(name) || h.computeTypeCanMatch(ft.Type, visiting) {

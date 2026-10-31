@@ -5,7 +5,6 @@
 package attrwalk
 
 import (
-	"encoding"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -275,6 +274,9 @@ func (h *Walker) walkStruct(rv reflect.Value, groups []string, depth int) (slog.
 			changed = true
 			continue
 		}
+		if promotesStructFields(ft) {
+			return slog.StringValue("<masking: promoted embedding>"), true
+		}
 		a, masked := h.attrForField(name, rv.Field(i), groups, depth)
 		changed = changed || masked
 		attrs = append(attrs, a)
@@ -437,37 +439,43 @@ func structFieldName(ft reflect.StructField) string {
 	}
 }
 
-// timeType / textMarshalerType / stringerType / logValuerType pre-cache
-// the reflect.Type values we compare against in [isAtomicType] so the
-// hot path does not allocate. logValuer is the slog way to control a
-// value's representation; respecting it keeps custom types intact.
+// promotesStructFields identifies anonymous structs whose JSON fields can be
+// promoted. Fail closed instead of approximating JSON's dominance and conflict
+// rules with paths containing the embedded Go type name.
+func promotesStructFields(ft reflect.StructField) bool {
+	if !ft.Anonymous {
+		return false
+	}
+	t := ft.Type
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return false
+	}
+	name, _, _ := strings.Cut(ft.Tag.Get("json"), ",")
+	return name == ""
+}
+
+// Cache the types with known sink representations and the LogValuer interface.
 var (
-	timeType          = reflect.TypeFor[time.Time]()
-	durationType      = reflect.TypeFor[time.Duration]()
-	textMarshalerType = reflect.TypeFor[encoding.TextMarshaler]()
-	logValuerType     = reflect.TypeFor[slog.LogValuer]()
-	byteSliceType     = reflect.TypeFor[[]byte]()
+	timeType      = reflect.TypeFor[time.Time]()
+	durationType  = reflect.TypeFor[time.Duration]()
+	logValuerType = reflect.TypeFor[slog.LogValuer]()
+	byteSliceType = reflect.TypeFor[[]byte]()
 )
 
 // isAtomicType reports whether reflect descent must stop at this type.
-// Types that ship their own canonical representation (time.Time,
-// encoding.TextMarshaler implementations, []byte) should be rendered as-is by the downstream
-// handler, not flattened into a slog group.
+// TextMarshaler and Stringer do not exempt user structs: sinks differ in which
+// methods they invoke, and pointer methods may not apply to plain values.
+// LogValuer representations are resolved before this check.
 func isAtomicType(t reflect.Type) bool {
 	switch t {
 	case timeType, durationType, byteSliceType:
 		return true
+	default:
+		return false
 	}
-	if t.Implements(textMarshalerType) || reflect.PointerTo(t).Implements(textMarshalerType) {
-		return true
-	}
-	// fmt.Stringer is intentionally NOT treated as atomic: it is a display
-	// hint, not a canonical encoding. A struct with sensitive fields that also
-	// implements String() must still be descended into and masked field by
-	// field; otherwise its String() output would be logged verbatim, bypassing
-	// the masking handler. LogValuer representations are resolved before this
-	// check; encoding.TextMarshaler still stops descent here.
-	return false
 }
 
 // applyMask applies the masking function to an attribute value
