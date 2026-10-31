@@ -43,10 +43,10 @@ func (h *Walker) buildFieldPath(groups []string, key string) string {
 }
 
 func (h *Walker) maskAttributeDepth(attr slog.Attr, groups []string, depth int) slog.Attr {
+	attr.Value = attr.Value.Resolve()
 	if attr.Equal(slog.Attr{}) {
 		return attr
 	}
-	attr.Value = attr.Value.Resolve()
 	if depth >= maxMaskDescentDepth && (attr.Value.Kind() == slog.KindGroup || attr.Value.Kind() == slog.KindAny) {
 		return slog.String(attr.Key, depthLimitPlaceholder)
 	}

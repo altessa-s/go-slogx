@@ -19,6 +19,10 @@ import (
 
 type nullJSONMarshaler struct{}
 
+type nullableLogValue struct{ value slog.Value }
+
+func (v nullableLogValue) LogValue() slog.Value { return v.value }
+
 func (nullJSONMarshaler) MarshalJSON() ([]byte, error) {
 	return []byte("null"), nil
 }
@@ -37,6 +41,8 @@ func TestJSONEmptyAttributeKeyPreservesNull(t *testing.T) {
 		{name: "custom marshaler", attr: slog.Any("", nullJSONMarshaler{})},
 		{name: "zero attribute", attr: slog.Attr{}, omit: true},
 		{name: "untyped nil", attr: slog.Any("", nil), omit: true},
+		{name: "resolved zero", attr: slog.Any("", nullableLogValue{}), omit: true},
+		{name: "resolved typed null", attr: slog.Any("", nullableLogValue{slog.AnyValue((*string)(nil))})},
 	}
 	for _, tc := range cases {
 		for _, group := range []string{"none", "WithGroup", "attribute"} {
