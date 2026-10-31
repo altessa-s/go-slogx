@@ -62,11 +62,12 @@ func TestWalkerKindsAndFailClosed(t *testing.T) {
 	var pointer any
 	pointer = &pointer
 	require.Contains(t, fmt.Sprint(w.Attr(slog.Any("cycle", pointer), nil)), "max depth exceeded")
-	for _, input := range []any{nil, (*payload)(nil), time.Unix(0, 0), time.Second, []byte("safe"), text("safe"), map[string]any{}, []string{}, [0]string{}, struct{}{}, map[int]string{1: "safe"}, 7, true, make(chan int), func() {}} {
+	for _, input := range []any{nil, (*payload)(nil), time.Unix(0, 0), time.Second, []byte("safe"), text("safe"), map[string]any{}, []string{}, [0]string{}, struct{}{}, 7, true, make(chan int), func() {}} {
 		a := slog.Any("value", input)
 		out := w.Attr(a, nil)
 		require.Equal(t, a.Value.Kind(), out.Value.Kind())
 	}
+	require.Equal(t, "<masking: unsupported map keys>", w.Attr(slog.Any("value", map[int]string{1: "safe"}), nil).Value.String())
 	require.Equal(t, slog.Attr{}, w.Attr(slog.Attr{}, nil))
 	for _, a := range []slog.Attr{slog.String("password", "canary"), slog.Int("password", 1), slog.Uint64("password", 1), slog.Float64("password", 1), slog.Bool("password", true), slog.Duration("password", time.Second), slog.Time("password", time.Now()), slog.Any("password", p), slog.Any("password", value{slog.StringValue("canary")})} {
 		require.Equal(t, "********", w.Attr(a, nil).Value.String())

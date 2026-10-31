@@ -268,7 +268,8 @@ func (h *Walker) walkStruct(rv reflect.Value, groups []string, depth int) (slog.
 			continue
 		}
 		name := structFieldName(ft)
-		if name == "" { // json:"-"
+		if name == "" { // json:"-" must also be omitted from native text output.
+			changed = true
 			continue
 		}
 		a, masked := h.attrForField(name, rv.Field(i), groups, depth)
@@ -289,12 +290,11 @@ func (h *Walker) walkStruct(rv reflect.Value, groups []string, depth int) (slog.
 	return slog.GroupValue(attrs...), true
 }
 
-// walkMap walks a string-keyed map. Non-string-keyed maps are left alone
-// — slog's JSON handler renders them via Sprint anyway, and walking them
-// would require coercing keys to strings (lossy and surprising).
+// walkMap walks string-keyed maps and fails closed for other key types.
+// Their values can contain secrets, and coercing arbitrary keys is lossy.
 func (h *Walker) walkMap(rv reflect.Value, groups []string, depth int) (slog.Value, bool) {
 	if rv.Type().Key().Kind() != reflect.String {
-		return slog.Value{}, false
+		return slog.StringValue("<masking: unsupported map keys>"), true
 	}
 	attrs := make([]slog.Attr, 0, min(rv.Len(), maxContainerBreadth)+1)
 	changed := false

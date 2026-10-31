@@ -11,3 +11,7 @@ Bounded reflection walk used by the masking handler. Values past the depth budge
 The walk resolves a `slog.LogValuer` once, follows pointers with a cycle bound, and does not mask the log message.
 
 Unmatched containers retain their original value and JSON shape. Each traversed container is limited to 256 entries plus a fail-closed placeholder. Mask callback panics produce `********`.
+
+Non-string-keyed maps are replaced with `<masking: unsupported map keys>`,
+including with fields-only rules. Struct fields tagged `json:"-"` are omitted
+by rebuilding the container so native text formatting cannot reveal them.

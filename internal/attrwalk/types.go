@@ -23,8 +23,8 @@ func (h *Walker) typeCanMatch(t reflect.Type) bool {
 
 // computeTypeCanMatch is the uncached DFS behind [Handler.typeCanMatch]. It
 // mirrors walkAny's descent rules: pointers unwrap, atomic types stop,
-// structs/slices recurse, string-keyed maps expose dynamic keys the static
-// analysis cannot see (conservatively a match). Interfaces hide the dynamic
+// structs/slices recurse, and maps either expose dynamic keys or require
+// fail-closed replacement (conservatively a match). Interfaces hide the dynamic
 // type, so they are conservatively a match too. The visiting set breaks
 // recursive types: revisiting a type cannot add names beyond its first pass.
 func (h *Walker) computeTypeCanMatch(t reflect.Type, visiting map[reflect.Type]bool) bool {
@@ -58,8 +58,8 @@ func (h *Walker) computeTypeCanMatch(t reflect.Type, visiting map[reflect.Type]b
 				continue
 			}
 			name := structFieldName(ft)
-			if name == "" { // json:"-"
-				continue
+			if name == "" { // Omission requires rebuilding for text sinks too.
+				return true
 			}
 			if h.fieldNameCanMatch(name) || h.computeTypeCanMatch(ft.Type, visiting) {
 				return true
@@ -67,9 +67,8 @@ func (h *Walker) computeTypeCanMatch(t reflect.Type, visiting map[reflect.Type]b
 		}
 		return false
 	case reflect.Map:
-		// Non-string-keyed maps are never walked (walkMap passes them
-		// through untouched), so only string keys count.
-		return t.Key().Kind() == reflect.String
+		// Dynamic string keys may match; other key types must fail closed.
+		return true
 	case reflect.Slice, reflect.Array:
 		return h.computeTypeCanMatch(t.Elem(), visiting)
 	default:

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/altessa-s/go-slogx/internal/attrwalk"
@@ -122,7 +123,10 @@ func (m *matcher) match(name, path string) mask.Func {
 		name = strings.ToLower(name)
 		path = strings.ToLower(path)
 	}
-	if f, ok := m.cache.Get(path); ok {
+	// Length-prefix the name so arbitrary dotted keys and separators cannot
+	// collide with a different (name, path) pair.
+	key := strconv.Itoa(len(name)) + ":" + name + path
+	if f, ok := m.cache.Get(key); ok {
 		return f
 	}
 	f := m.fields[path]
@@ -137,7 +141,7 @@ func (m *matcher) match(name, path string) mask.Func {
 			}
 		}
 	}
-	m.cache.Put(path, f)
+	m.cache.Put(key, f)
 	return f
 }
 

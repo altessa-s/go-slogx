@@ -13,6 +13,8 @@ import (
 	"unicode/utf8"
 )
 
+const panicPlaceholder = "********"
+
 // Func redacts a string value.
 type Func func(string) string
 
@@ -29,7 +31,7 @@ var ErrUnknownMask = errors.New("unknown mask")
 const DefaultCredentialPattern = `(?i)password|secret|token|_key$`
 
 // Full replaces nonempty values with eight asterisks.
-func Full() Func { return Fixed("********") }
+func Full() Func { return Fixed(panicPlaceholder) }
 
 // Fixed replaces nonempty values with replacement.
 func Fixed(replacement string) Func {
@@ -109,7 +111,7 @@ func URL() Func {
 		}
 		for key, values := range q {
 			for i := range values {
-				values[i] = "********"
+				values[i] = panicPlaceholder
 			}
 			q[key] = values
 		}
@@ -134,7 +136,7 @@ func Regexp(pattern string, m Func) (Func, error) {
 	return func(s string) (result string) {
 		defer func() {
 			if recover() != nil {
-				result = "********"
+				result = panicPlaceholder
 			}
 		}()
 		if re.MatchString(s) {

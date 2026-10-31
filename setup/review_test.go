@@ -76,3 +76,30 @@ func TestL3FailedSinkClosesWorker(t *testing.T) {
 	require.Len(t, reports, 1)
 	require.ErrorIs(t, reports[0], bufwriter.ErrClosed)
 }
+
+func TestMaskingUnsupportedMapsAndOmittedFields(t *testing.T) {
+	t.Parallel()
+	for _, format := range []setup.Format{setup.JSON, setup.Text} {
+		for _, defaults := range []bool{false, true} {
+			for _, value := range []any{
+				map[int]any{1: map[string]string{"password": "canary"}},
+				struct{ Values map[int]string }{map[int]string{1: "canary"}},
+				struct {
+					Password string `json:"-"`
+				}{"canary"},
+				struct {
+					Hidden string `json:"-"`
+					Public string
+				}{"canary", "visible"},
+			} {
+				var out bytes.Buffer
+				l, err := setup.New(&out, setup.WithFormat(format),
+					setup.WithMaskDefaults(defaults), setup.WithMaskRules(mask.Rule{Field: "password"}))
+				require.NoError(t, err)
+				l.Logger().Info("record", "payload", value)
+				require.NotContains(t, out.String(), "canary")
+				require.Contains(t, out.String(), "record")
+			}
+		}
+	}
+}

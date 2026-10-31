@@ -123,7 +123,12 @@ func (c *Catalog) pattern(p Params) (Func, error) {
 			return nil, err
 		}
 	}
-	return func(s string) string {
+	return func(s string) (result string) {
+		defer func() {
+			if recover() != nil {
+				result = panicPlaceholder
+			}
+		}()
 		if re.MatchString(s) {
 			return replacement(s)
 		}
