@@ -17,6 +17,67 @@ import (
 	"github.com/altessa-s/go-slogx/mask"
 )
 
+type nullJSONMarshaler struct{}
+
+func (nullJSONMarshaler) MarshalJSON() ([]byte, error) {
+	return []byte("null"), nil
+}
+
+func TestJSONEmptyAttributeKeyPreservesNull(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		attr slog.Attr
+		omit bool
+	}{
+		{name: "nil pointer", attr: slog.Any("", (*string)(nil))},
+		{name: "nil map", attr: slog.Any("", map[string]string(nil))},
+		{name: "nil slice", attr: slog.Any("", []string(nil))},
+		{name: "raw null", attr: slog.Any("", json.RawMessage("null"))},
+		{name: "custom marshaler", attr: slog.Any("", nullJSONMarshaler{})},
+		{name: "zero attribute", attr: slog.Attr{}, omit: true},
+		{name: "untyped nil", attr: slog.Any("", nil), omit: true},
+	}
+	for _, tc := range cases {
+		for _, group := range []string{"none", "WithGroup", "attribute"} {
+			for _, captured := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/group=%s/captured=%t", tc.name, group, captured), func(t *testing.T) {
+					t.Parallel()
+					var buf bytes.Buffer
+					h := portedHandler(t, slog.NewJSONHandler(&buf, nil), masking.WithDefaults(true))
+					logger := slog.New(h)
+					attr := tc.attr
+					switch group {
+					case "WithGroup":
+						logger = logger.WithGroup("root")
+					case "attribute":
+						attr = slog.Group("root", attr)
+					}
+					attrs := []slog.Attr{attr}
+					if captured {
+						logger = slog.New(logger.Handler().WithAttrs(attrs))
+						attrs = nil
+					}
+					logger.LogAttrs(t.Context(), slog.LevelInfo, "test", attrs...)
+					var record map[string]any
+					require.NoError(t, json.Unmarshal(buf.Bytes(), &record))
+					delete(record, "time")
+					delete(record, "level")
+					delete(record, "msg")
+					want := map[string]any{}
+					if !tc.omit {
+						want[""] = nil
+						if group != "none" {
+							want = map[string]any{"root": want}
+						}
+					}
+					require.Equal(t, want, record)
+				})
+			}
+		}
+	}
+}
+
 func TestJSONEmptyAttributeKeyPreservesShapeAndMaskPaths(t *testing.T) {
 	t.Parallel()
 	for _, grouped := range []bool{false, true} {
