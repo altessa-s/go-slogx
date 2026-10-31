@@ -1,0 +1,28 @@
+# Commit Scopes for go-slogx
+# Use these scopes in conventional commits: type(scope): description
+# The scope is optional: omit it for repository-wide changes. Never use `root`.
+# Only the first word of a non-comment line is a scope.
+# Example: fix(handler/leveled): match the subsystem key outside groups only
+
+# Repository scopes
+deps                        # Dependency updates (Dependabot writes build(deps): bump ...)
+README                      # Root README
+docs                        # Documentation
+
+# Packages
+slogx                       # Root package: attribute helpers, fields, context carriers, levels
+mask                        # Mask functions, rules and the mask catalog
+handler/leveled             # Per-subsystem minimum level
+handler/prefixed            # Subsystem attributes collapsed into one prefix
+handler/masking             # Redaction of attributes by mask rules
+bufwriter                   # Asynchronous io.Writer under a sink
+console                     # Human-readable ANSI text sink
+setup                       # Logger composition from options
+slogxtest                   # Test doubles and conformance helpers for consumers
+internal/handlerbase        # Embeddable middleware base
+internal/attrwalk           # Bounded reflection walk of attribute values
+internal/pathcache          # Bounded memo cache of masking paths
+
+# Tooling
+devtools                    # Development tool dependencies
+ci                          # GitHub Actions workflows and scripts
