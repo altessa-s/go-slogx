@@ -46,3 +46,44 @@ func BenchmarkM5HighCardinalityMaps(b *testing.B) {
 		i++
 	}
 }
+
+func BenchmarkJSONRepresentation(b *testing.B) {
+	for _, defaults := range []bool{false, true} {
+		b.Run(strconv.FormatBool(defaults), func(b *testing.B) {
+			h, err := masking.New(slog.DiscardHandler, masking.WithDefaults(defaults))
+			if err != nil {
+				b.Fatal(err)
+			}
+			r := slog.Record{}
+			r.AddAttrs(slog.Any("payload", struct {
+				Password string
+				Public   string
+			}{"secret", "visible"}))
+			ctx := b.Context()
+			b.ReportAllocs()
+			for b.Loop() {
+				if err := h.Handle(ctx, r); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func TestNoCandidateRulesAllocations(t *testing.T) {
+	// AllocsPerRun requires a serial test.
+	h, err := masking.New(slog.DiscardHandler)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := slog.Record{}
+	r.AddAttrs(slog.Any("payload", struct{ Password string }{"secret"}))
+	ctx := t.Context()
+	if got := testing.AllocsPerRun(100, func() {
+		if err := h.Handle(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}); got != 0 {
+		t.Fatalf("no candidate rules: got %v allocations, want zero", got)
+	}
+}

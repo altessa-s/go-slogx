@@ -4,30 +4,15 @@
 import "github.com/altessa-s/go-slogx/internal/attrwalk"
 ```
 
-Bounded reflection walk used by the masking handler. Values past the depth budget are replaced with the fail-closed placeholder.
+Masks resolved attributes and the `encoding/json` representation of `KindAny` values. JSON is decoded with `UseNumber`, preserving numeric
+precision. Objects become slog groups; arrays and empty objects remain generic JSON values. Original objects never reach the sink when rules
+are active. JSON controls private fields, tags, embedding, omission, and custom encoding. Attribute-level `LogValuer` is resolved first;
+inside a `KindAny` object, JSON's own method semantics apply.
 
-## Scope
+Traversal stops at depth ten and 256 entries per container. Marshal failures and recoverable panics produce `<masking: JSON encoding failed>`;
+mask callback panics produce `********`. No error or panic payload is emitted. Messages are outside the masking policy.
 
-The walk resolves a `slog.LogValuer` once, follows pointers with a cycle bound, and does not mask the log message.
-
-Unmatched containers retain their original value and JSON shape. Each traversed container is limited to 256 entries plus a fail-closed placeholder. Mask callback panics produce `********`.
-
-Non-string-keyed maps are replaced with `<masking: unsupported map keys>`,
-including with fields-only rules. Struct fields tagged `json:"-"` are omitted
-by rebuilding the container so native text formatting cannot reveal them.
-
-Unexported anonymous fields cause their container to be replaced with
-`<masking: unexported embedding>`, so promoted exported fields cannot leak.
-Matched compound values are checked before formatting using the depth budget
-and a total 256-node budget. Cycles or exhausted budgets emit a fixed
-placeholder without invoking the mask callback.
-
-TextMarshaler implementations do not bypass field traversal: JSON and console
-sinks do not invoke the same methods, and pointer methods may not apply to
-plain values. Matching fields are masked for both receiver forms.
-
-Exported anonymous struct and pointer fields without a JSON name (including
-options-only tags) replace their container with
-`<masking: promoted embedding>`. This conservative policy avoids approximating
-JSON promotion, shadowing, and ambiguous-field selection. Explicitly named
-embeddings retain ordinary nested field traversal.
+A conservative reflection preflight limits source depth to ten and total source nodes to 256 before invoking JSON. It rejects unsupported JSON tag names because the pinned encoder truncates some invalid names instead of falling back.
+It does not choose field names or decide embedding promotion. This guards a fatal pointer/interface-cycle stack overflow in the pinned Go 1.27.3 encoder, which cannot be recovered. Source
+budget exhaustion replaces the entire value, including large containers or private subtrees JSON might otherwise omit. Custom marshalers
+can still allocate, block, or recurse internally; recover only contains ordinary panics, not runtime-fatal errors.

@@ -5,14 +5,15 @@
 package attrwalk
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
-	"sync"
-	"time"
+	"unicode"
 
 	"github.com/altessa-s/go-slogx/mask"
 )
@@ -21,17 +22,19 @@ const maxMaskDescentDepth = 10
 const maxContainerBreadth = 256
 const breadthLimitPlaceholder = "<masking: max breadth exceeded>"
 const depthLimitPlaceholder = "<masking: max depth exceeded>"
+const marshalFailurePlaceholder = "<masking: JSON encoding failed>"
 
-// Walker resolves attributes and masks nested structures within a depth budget.
-// Match and Candidate must be immutable and safe for concurrent calls.
+// Walker masks resolved attributes and their JSON representation.
+// Match must be immutable and safe for concurrent calls.
 type Walker struct {
-	Match        func(string, string) mask.Func
-	Candidate    func(string) bool
-	typeVerdicts sync.Map
+	Match func(string, string) mask.Func
 }
 
 // Attr returns a masked attribute without changing the caller's input.
-func (h *Walker) Attr(a slog.Attr, groups []string) slog.Attr { return h.maskAttribute(a, groups) }
+func (h *Walker) Attr(a slog.Attr, groups []string) slog.Attr {
+	return h.maskAttributeDepth(a, groups, 0)
+}
+
 func (h *Walker) buildFieldPath(groups []string, key string) string {
 	if len(groups) == 0 {
 		return key
@@ -39,443 +42,226 @@ func (h *Walker) buildFieldPath(groups []string, key string) string {
 	return strings.Join(groups, ".") + "." + key
 }
 
-// maskAttribute recursively masks an attribute based on configuration
-func (h *Walker) maskAttribute(attr slog.Attr, groups []string) slog.Attr {
-	return h.maskAttributeDepth(attr, groups, 0)
-}
-
-// maskAttributeDepth shares one depth budget across resolved groups and reflection.
 func (h *Walker) maskAttributeDepth(attr slog.Attr, groups []string, depth int) slog.Attr {
-	// Skip empty attributes
 	if attr.Equal(slog.Attr{}) {
 		return attr
 	}
-
-	// Resolve before inspecting the kind or applying a mask. Resolve bounds
-	// direct LogValuer chains and recovers panics; depth also bounds values
-	// that return groups or containers containing themselves.
-	if attr.Value.Kind() == slog.KindLogValuer {
-		attr.Value = attr.Value.Resolve()
-	}
-	if depth >= maxMaskDescentDepth && (attr.Value.Kind() == slog.KindGroup ||
-		(attr.Value.Kind() == slog.KindAny && hasMaskableSubstructure(reflect.ValueOf(attr.Value.Any())))) {
+	attr.Value = attr.Value.Resolve()
+	if depth >= maxMaskDescentDepth && (attr.Value.Kind() == slog.KindGroup || attr.Value.Kind() == slog.KindAny) {
 		return slog.String(attr.Key, depthLimitPlaceholder)
 	}
-
-	// Handle groups recursively. Group keys themselves are never
-	// mask-checked (only members are), so the field path is built after
-	// this branch. slices.Concat gives the members a fresh backing array —
-	// a plain append could let sibling subtrees share and overwrite the
-	// same storage mid-walk.
 	if attr.Value.Kind() == slog.KindGroup {
-		groupAttrs := attr.Value.Group()
-		maskedGroup := make([]slog.Attr, 0, min(len(groupAttrs), maxContainerBreadth)+1)
-		childGroups := groups
+		attrs := attr.Value.Group()
+		out := make([]slog.Attr, 0, min(len(attrs), maxContainerBreadth)+1)
+		children := groups
 		if attr.Key != "" {
-			childGroups = slices.Concat(groups, []string{attr.Key})
+			children = slices.Concat(groups, []string{attr.Key})
 		}
-
-		for _, ga := range groupAttrs[:min(len(groupAttrs), maxContainerBreadth)] {
-			maskedGroup = append(maskedGroup, h.maskAttributeDepth(ga, childGroups, depth+1))
+		for _, a := range attrs[:min(len(attrs), maxContainerBreadth)] {
+			out = append(out, h.maskAttributeDepth(a, children, depth+1))
 		}
-
-		if len(groupAttrs) > maxContainerBreadth {
-			maskedGroup = append(maskedGroup, slog.String("...", breadthLimitPlaceholder))
+		if len(attrs) > maxContainerBreadth {
+			out = append(out, slog.String("...", breadthLimitPlaceholder))
 		}
-		return slog.Attr{Key: attr.Key, Value: slog.GroupValue(maskedGroup...)}
+		return slog.Attr{Key: attr.Key, Value: slog.GroupValue(out...)}
 	}
-
-	// Check if field should be masked
-	fieldPath := h.buildFieldPath(groups, attr.Key)
-	if mask := h.Match(attr.Key, fieldPath); mask != nil {
-		return h.applyMask(attr, mask, depth)
+	if fn := h.Match(attr.Key, h.buildFieldPath(groups, attr.Key)); fn != nil {
+		return h.applyMask(attr, fn, depth)
 	}
-
-	// Top-level field name didn't match — but a KindAny value can hide
-	// a struct/map/slice with sensitive subfields (`payload.password`,
-	// `request.token`). Descend via reflection and rebuild the value
-	// as slog.GroupValue with matched leaves masked. Without this the
-	// original implementation flattened the value via fmt.Sprint and
-	// every nested secret leaked verbatim.
 	if attr.Value.Kind() == slog.KindAny {
-		if masked, ok := h.descendIntoAny(attr.Key, attr.Value, groups, depth); ok {
-			return masked
+		tree, failure := jsonTree(attr.Value.Any())
+		if failure != "" {
+			return slog.String(attr.Key, failure)
 		}
+		attr.Value = h.walkJSON(tree, slices.Concat(groups, []string{attr.Key}), depth)
 	}
-
 	return attr
 }
 
-// descendIntoAny walks a KindAny attribute via reflection and returns a
-// new attribute with sensitive subfields masked. The bool result is
-// false when no leaf changed or descent is unnecessary (nil or atomic values).
-// The caller keeps the original attribute in that case.
-func (h *Walker) descendIntoAny(key string, value slog.Value, groups []string, depth int) (slog.Attr, bool) {
-	raw := value.Any()
-	if raw == nil {
-		return slog.Attr{}, false
+// jsonTree delegates names, promotion, omission, and custom encoding to JSON.
+// Neither errors nor panic payloads are allowed to reach a sink.
+func jsonTree(raw any) (tree any, failure string) {
+	defer func() {
+		if recover() != nil {
+			tree, failure = nil, marshalFailurePlaceholder
+		}
+	}()
+	remaining := maxContainerBreadth
+	if reason := encodingLimit(reflect.ValueOf(raw), 0, &remaining); reason != "" {
+		return nil, reason
 	}
-	// Fields-only configurations can prove statically that a type's
-	// transitive field names never match a mask — skip the reflection walk
-	// and let the value render natively, exactly like the no-masking fast
-	// path in Handle.
-	if h.Candidate != nil && !h.typeCanMatch(reflect.TypeOf(raw)) {
-		return slog.Attr{}, false
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, marshalFailurePlaceholder
 	}
-	walked, walkedOK := h.walkAny(reflect.ValueOf(raw), slices.Concat(groups, []string{key}), depth)
-	if !walkedOK {
-		return slog.Attr{}, false
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&tree); err != nil {
+		return nil, marshalFailurePlaceholder
 	}
-	return slog.Attr{Key: key, Value: walked}, true
+	return tree, ""
 }
 
-// walkAny is the reflect-driven recursive walker used by descendIntoAny.
-// Returns (slog.Value, true) when descent rebuilt the value, or
-// (zero, false) when the value is unchanged (the caller keeps the original).
-// Depth and per-container breadth are bounded.
-func (h *Walker) walkAny(rv reflect.Value, groups []string, depth int) (slog.Value, bool) {
-	if !rv.IsValid() || depth >= maxMaskDescentDepth {
-		return slog.Value{}, false
+// encodingLimit prevents fatal pointer/interface recursion in the pinned JSON
+// encoder. It only bounds input; JSON alone chooses the emitted fields.
+func encodingLimit(v reflect.Value, depth int, remaining *int) string {
+	if !v.IsValid() {
+		return ""
 	}
-
-	if value, ok := reflectedLogValue(rv); ok {
-		return h.maskResolvedValue(value.Resolve(), groups, depth+1), true
-	}
-
-	// Unwrap pointers/interfaces. nil pointer/interface short-circuits.
-	for steps := 0; rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface; steps++ {
-		if steps >= maxMaskDescentDepth {
-			return slog.StringValue(depthLimitPlaceholder), true
-		}
-		if rv.IsNil() {
-			return slog.Value{}, false
-		}
-		rv = rv.Elem()
-	}
-
-	// Atomic types: well-known stdlib types that have their own canonical
-	// representation and MUST NOT be flattened into a slog group. Adding
-	// to this list is the migration path when new types surface in audits.
-	if isAtomicType(rv.Type()) {
-		return slog.Value{}, false
-	}
-
-	switch rv.Kind() {
-	case reflect.Struct:
-		return h.walkStruct(rv, groups, depth)
-	case reflect.Map:
-		return h.walkMap(rv, groups, depth)
-	case reflect.Slice, reflect.Array:
-		return h.walkSlice(rv, groups, depth)
-	default:
-		// Scalars, pointers, channels, funcs, interfaces, and unsafe
-		// pointers do not have walkable substructure. Returning
-		// (zero, false) signals the caller to pass the value through
-		// to the underlying handler unchanged.
-		return slog.Value{}, false
-	}
-}
-
-// reflectedLogValue preserves pointer receivers before reflection unwraps them.
-func reflectedLogValue(rv reflect.Value) (slog.Value, bool) {
-	for depth := 0; rv.IsValid(); depth++ {
-		if depth >= maxMaskDescentDepth {
-			return slog.StringValue(depthLimitPlaceholder), true
-		}
-		if rv.CanInterface() && rv.Type().Implements(logValuerType) {
-			return slog.AnyValue(rv.Interface()), true
-		}
-		if rv.Kind() != reflect.Pointer && rv.Kind() != reflect.Interface {
-			break
-		}
-		if rv.IsNil() {
-			break
-		}
-		rv = rv.Elem()
-	}
-	return slog.Value{}, false
-}
-
-// maskResolvedValue walks the representation of a nested LogValuer at its
-// existing field path, without adding a synthetic key to that path.
-func (h *Walker) maskResolvedValue(value slog.Value, groups []string, depth int) slog.Value {
 	if depth >= maxMaskDescentDepth {
-		return slog.StringValue(depthLimitPlaceholder)
+		return depthLimitPlaceholder
 	}
-	switch value.Kind() {
-	case slog.KindGroup:
-		attrs := value.Group()
-		masked := make([]slog.Attr, 0, min(len(attrs), maxContainerBreadth)+1)
-		for _, attr := range attrs[:min(len(attrs), maxContainerBreadth)] {
-			masked = append(masked, h.maskAttributeDepth(attr, groups, depth+1))
+	if *remaining == 0 {
+		return breadthLimitPlaceholder
+	}
+	*remaining--
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if !v.IsNil() {
+			return encodingLimit(v.Elem(), depth+1, remaining)
 		}
-		if len(attrs) > maxContainerBreadth {
-			masked = append(masked, slog.String("...", breadthLimitPlaceholder))
+	case reflect.Struct:
+		for fieldType, field := range v.Fields() {
+			// Reject unsupported names; never guess the name a JSON version emits.
+			name, _, _ := strings.Cut(fieldType.Tag.Get("json"), ",")
+			if !validJSONName(name) {
+				return marshalFailurePlaceholder
+			}
+			if reason := encodingLimit(field, depth+1, remaining); reason != "" {
+				return reason
+			}
 		}
-		return slog.GroupValue(masked...)
-	case slog.KindAny:
-		if nested, ok := h.walkAny(reflect.ValueOf(value.Any()), groups, depth); ok {
-			return nested
+	case reflect.Map:
+		for it := v.MapRange(); it.Next(); {
+			if reason := encodingLimit(it.Key(), depth+1, remaining); reason != "" {
+				return reason
+			}
+			if reason := encodingLimit(it.Value(), depth+1, remaining); reason != "" {
+				return reason
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		for i := range v.Len() {
+			if reason := encodingLimit(v.Index(i), depth+1, remaining); reason != "" {
+				return reason
+			}
 		}
 	default:
-		// Resolved scalar values have no nested fields to mask.
+		// Scalars have no children; JSON rejects unsupported scalar types.
 	}
-	return value
+	return ""
 }
 
-// hasMaskableSubstructure reports whether rv could still contain a field a
-// masking rule would match — that is, whether walkAny would have descended into
-// it had depth allowed. It mirrors walkAny's dispatch deliberately: the two
-// must agree about what "walkable" means, or the depth cutoff would either
-// print a value it should have hidden or hide a scalar it should have printed.
-func hasMaskableSubstructure(rv reflect.Value) bool {
-	if !rv.IsValid() {
-		return false
-	}
-	if _, ok := reflectedLogValue(rv); ok {
-		return true
-	}
-	for steps := 0; rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface; steps++ {
-		if steps >= maxMaskDescentDepth {
-			return true
-		}
-		if rv.IsNil() {
+// validJSONName accepts the encoding/json v1 documented field-name alphabet.
+// The pinned encoder truncates some invalid tags rather than ignoring them.
+func validJSONName(name string) bool {
+	for _, r := range name {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune("!#$%&()*+-./:;<=>?@[]^_{|}~ ", r) {
 			return false
 		}
-		rv = rv.Elem()
 	}
-	if isAtomicType(rv.Type()) {
-		return false
-	}
-	switch rv.Kind() {
-	case reflect.Struct, reflect.Map, reflect.Slice, reflect.Array:
-		return true
-	default:
-		return false
-	}
+	return true
 }
 
-// walkStruct walks the exported fields of a struct and rebuilds the
-// value as a slog group with masked fields where rules match.
-func (h *Walker) walkStruct(rv reflect.Value, groups []string, depth int) (slog.Value, bool) {
-	t := rv.Type()
-	attrs := make([]slog.Attr, 0, min(rv.NumField(), maxContainerBreadth)+1)
-	changed := false
-	for i := range min(rv.NumField(), maxContainerBreadth) {
-		ft := t.Field(i)
-		if !ft.IsExported() {
-			if ft.Anonymous {
-				return slog.StringValue("<masking: unexported embedding>"), true
+// walkJSON visits only decoded data: user formatting methods cannot run again.
+// Array elements retain their JSON shape and the parent matching path.
+func (h *Walker) walkJSON(tree any, groups []string, depth int) slog.Value {
+	switch v := tree.(type) {
+	case map[string]any:
+		if depth >= maxMaskDescentDepth {
+			return slog.StringValue(depthLimitPlaceholder)
+		}
+		if len(v) == 0 {
+			return slog.AnyValue(v)
+		}
+		keys := slices.Sorted(maps.Keys(v))
+		attrs := make([]slog.Attr, 0, min(len(v), maxContainerBreadth)+1)
+		for _, key := range keys[:min(len(keys), maxContainerBreadth)] {
+			child := v[key]
+			var value slog.Value
+			if fn := h.Match(key, h.buildFieldPath(groups, key)); fn != nil {
+				value = slog.StringValue(maskTree(fn, child, depth+1))
+			} else {
+				value = h.walkJSON(child, slices.Concat(groups, []string{key}), depth+1)
 			}
-			continue
+			attrs = append(attrs, slog.Attr{Key: key, Value: value})
 		}
-		name := structFieldName(ft)
-		if name == "" { // json:"-" must also be omitted from native text output.
-			changed = true
-			continue
+		if len(v) > maxContainerBreadth {
+			attrs = append(attrs, slog.String("...", breadthLimitPlaceholder))
 		}
-		if promotesStructFields(ft) {
-			return slog.StringValue("<masking: promoted embedding>"), true
+		return slog.GroupValue(attrs...)
+	case []any:
+		if depth >= maxMaskDescentDepth {
+			return slog.StringValue(depthLimitPlaceholder)
 		}
-		a, masked := h.attrForField(name, rv.Field(i), groups, depth)
-		changed = changed || masked
-		attrs = append(attrs, a)
-	}
-	// No exported fields: nothing to mask or rebuild. An empty group would
-	// replace the value, and slog drops empty groups — so the attribute would
-	// vanish. Signal "not rebuilt" so the caller keeps the original and lets the
-	// downstream handler render it canonically (e.g. an error via Error()).
-	if rv.NumField() > maxContainerBreadth {
-		attrs = append(attrs, slog.String("...", breadthLimitPlaceholder))
-		changed = true
-	}
-	if !changed {
-		return slog.Value{}, false
-	}
-	return slog.GroupValue(attrs...), true
-}
-
-// walkMap walks string-keyed maps and fails closed for other key types.
-// Their values can contain secrets, and coercing arbitrary keys is lossy.
-func (h *Walker) walkMap(rv reflect.Value, groups []string, depth int) (slog.Value, bool) {
-	if rv.Type().Key().Kind() != reflect.String {
-		return slog.StringValue("<masking: unsupported map keys>"), true
-	}
-	attrs := make([]slog.Attr, 0, min(rv.Len(), maxContainerBreadth)+1)
-	changed := false
-	for iter := rv.MapRange(); len(attrs) < maxContainerBreadth && iter.Next(); {
-		key := iter.Key().String()
-		a, masked := h.attrForField(key, iter.Value(), groups, depth)
-		changed = changed || masked
-		attrs = append(attrs, a)
-	}
-	// Same empty-group hazard as walkStruct: an empty map rebuilds to an empty
-	// group, which slog omits — the attribute would vanish. Signal "not rebuilt"
-	// so the caller keeps the original and it renders canonically (e.g. map[]).
-	if rv.Len() > maxContainerBreadth {
-		attrs = append(attrs, slog.String("...", breadthLimitPlaceholder))
-		changed = true
-	}
-	if !changed {
-		return slog.Value{}, false
-	}
-	return slog.GroupValue(attrs...), true
-}
-
-// walkSlice walks slice/array elements; sensitive subfields inside
-// element structs/maps are still caught because the parent group path
-// is preserved. The index is used as the attr key so consumers can map
-// each masked leaf back to its original position.
-func (h *Walker) walkSlice(rv reflect.Value, groups []string, depth int) (slog.Value, bool) {
-	attrs := make([]slog.Attr, 0, min(rv.Len(), maxContainerBreadth)+1)
-	changed := false
-	for i := range min(rv.Len(), maxContainerBreadth) {
-		elem := rv.Index(i)
-		key := sliceIndexKey(i)
-		if nested, ok := h.walkAny(elem, groups, depth+1); ok {
-			changed = true
-			attrs = append(attrs, slog.Attr{Key: key, Value: nested})
-			continue
+		if len(v) == 0 {
+			return slog.AnyValue(v)
 		}
-		// Same split as attrForField: an atomic element is safe to pass
-		// through, one the depth limit cut off is not.
-		if depth+1 >= maxMaskDescentDepth && hasMaskableSubstructure(elem) {
-			changed = true
-			attrs = append(attrs, slog.String(key, depthLimitPlaceholder))
-			continue
+		out := make([]any, 0, min(len(v), maxContainerBreadth)+1)
+		for _, child := range v[:min(len(v), maxContainerBreadth)] {
+			out = append(out, jsonValue(h.walkJSON(child, groups, depth+1)))
 		}
-		// Atomic element — pass through as-is via slog.AnyValue.
-		attrs = append(attrs, slog.Attr{Key: key, Value: slog.AnyValue(elem.Interface())})
-	}
-	// Same empty-group hazard as walkStruct: an empty slice/array rebuilds to an
-	// empty group, which slog omits — the attribute would vanish. Signal "not
-	// rebuilt" so the caller keeps the original and it renders canonically (e.g. []).
-	if rv.Len() > maxContainerBreadth {
-		attrs = append(attrs, slog.String("...", breadthLimitPlaceholder))
-		changed = true
-	}
-	if !changed {
-		return slog.Value{}, false
-	}
-	return slog.GroupValue(attrs...), true
-}
-
-// sliceIndexKeys pre-renders the "[i]" keys walkSlice assigns to elements so
-// the per-element hot path avoids fmt.Sprintf. 64 covers realistic log
-// payloads; larger indexes fall back to allocating.
-var sliceIndexKeys = func() (keys [64]string) {
-	for i := range keys {
-		keys[i] = "[" + strconv.Itoa(i) + "]"
-	}
-	return keys
-}()
-
-func sliceIndexKey(i int) string {
-	if i < len(sliceIndexKeys) {
-		return sliceIndexKeys[i]
-	}
-	return "[" + strconv.Itoa(i) + "]"
-}
-
-// attrForField checks whether the supplied field matches a mask rule
-// and, if so, applies it to the stringified value. Otherwise it
-// recurses via walkAny (or passes the leaf through unchanged).
-func (h *Walker) attrForField(name string, field reflect.Value, parentGroups []string, depth int) (slog.Attr, bool) {
-	if value, ok := reflectedLogValue(field); ok {
-		return h.maskAttributeDepth(slog.Attr{Key: name, Value: value}, parentGroups, depth+1), true
-	}
-	fieldPath := h.buildFieldPath(parentGroups, name)
-	if mask := h.Match(name, fieldPath); mask != nil {
-		// Match: mask the stringified value. Use Interface() so types
-		// with custom Stringer get their own representation before
-		// masking — keeps masked output consistent with downstream
-		// log formatting.
-		var v any
-		if field.CanInterface() {
-			v = field.Interface()
+		if len(v) > maxContainerBreadth {
+			out = append(out, breadthLimitPlaceholder)
 		}
-		return slog.String(name, maskAny(mask, v, depth+1)), true
-	}
-	// slices.Concat allocates a fresh backing array — recursive walks
-	// otherwise share parentGroups' storage and a sibling branch can
-	// overwrite an earlier child's path mid-walk.
-	childGroups := slices.Concat(parentGroups, []string{name})
-	if nested, ok := h.walkAny(field, childGroups, depth+1); ok {
-		return slog.Attr{Key: name, Value: nested}, true
-	}
-	// walkAny reports "not rebuilt" for two different reasons, and only one of
-	// them is safe to pass through: an atomic leaf has nothing maskable inside,
-	// while a value the depth limit cut off may have plenty.
-	if depth+1 >= maxMaskDescentDepth && hasMaskableSubstructure(field) {
-		return slog.String(name, depthLimitPlaceholder), true
-	}
-	// Leaf: preserve the original value as-is so structured handlers
-	// (JSON, OTLP) render it natively.
-	if field.CanInterface() {
-		return slog.Any(name, field.Interface()), false
-	}
-	return slog.Attr{Key: name}, false
-}
-
-// structFieldName returns the name to use for a struct field in the
-// masked output. Honors `json` tags (so callers who already JSON-tagged
-// their structs get the masking matching they expect) but falls back to
-// the Go field name.
-func structFieldName(ft reflect.StructField) string {
-	tag, ok := ft.Tag.Lookup("json")
-	if !ok {
-		return ft.Name
-	}
-	if i := strings.IndexByte(tag, ','); i >= 0 {
-		tag = tag[:i]
-	}
-	switch tag {
-	case "":
-		return ft.Name
-	case "-":
-		return ""
+		return slog.AnyValue(out)
 	default:
-		return tag
+		return slog.AnyValue(tree)
 	}
 }
 
-// promotesStructFields identifies anonymous structs whose JSON fields can be
-// promoted. Fail closed instead of approximating JSON's dominance and conflict
-// rules with paths containing the embedded Go type name.
-func promotesStructFields(ft reflect.StructField) bool {
-	if !ft.Anonymous {
-		return false
+// jsonValue converts sanitized groups inside arrays back to generic JSON data.
+func jsonValue(value slog.Value) any {
+	if value.Kind() != slog.KindGroup {
+		return value.Any()
 	}
-	t := ft.Type
-	if t.Kind() == reflect.Pointer {
-		t = t.Elem()
+	out := make(map[string]any, len(value.Group()))
+	for _, attr := range value.Group() {
+		out[attr.Key] = jsonValue(attr.Value)
 	}
-	if t.Kind() != reflect.Struct {
-		return false
-	}
-	name, _, _ := strings.Cut(ft.Tag.Get("json"), ",")
-	return name == ""
+	return out
 }
 
-// Cache the types with known sink representations and the LogValuer interface.
-var (
-	timeType      = reflect.TypeFor[time.Time]()
-	durationType  = reflect.TypeFor[time.Duration]()
-	logValuerType = reflect.TypeFor[slog.LogValuer]()
-	byteSliceType = reflect.TypeFor[[]byte]()
-)
-
-// isAtomicType reports whether reflect descent must stop at this type.
-// TextMarshaler and Stringer do not exempt user structs: sinks differ in which
-// methods they invoke, and pointer methods may not apply to plain values.
-// LogValuer representations are resolved before this check.
-func isAtomicType(t reflect.Type) bool {
-	switch t {
-	case timeType, durationType, byteSliceType:
-		return true
-	default:
-		return false
+func maskJSON(fn mask.Func, raw any, depth int) string {
+	tree, failure := jsonTree(raw)
+	if failure != "" {
+		return failure
 	}
+	return maskTree(fn, tree, depth)
+}
+
+func maskTree(fn mask.Func, tree any, depth int) string {
+	remaining := maxContainerBreadth
+	if reason := treeLimit(tree, depth, &remaining); reason != "" {
+		return reason
+	}
+	return invokeMask(fn, fmt.Sprint(tree))
+}
+
+// treeLimit bounds conversion of a matched compound value before fmt sees it.
+func treeLimit(tree any, depth int, remaining *int) string {
+	if depth >= maxMaskDescentDepth {
+		return depthLimitPlaceholder
+	}
+	if *remaining == 0 {
+		return breadthLimitPlaceholder
+	}
+	*remaining--
+	switch v := tree.(type) {
+	case map[string]any:
+		for _, child := range v {
+			if reason := treeLimit(child, depth+1, remaining); reason != "" {
+				return reason
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if reason := treeLimit(child, depth+1, remaining); reason != "" {
+				return reason
+			}
+		}
+	}
+	return ""
 }
 
 // applyMask applies the masking function to an attribute value
@@ -498,9 +284,9 @@ func (h *Walker) applyMask(attr slog.Attr, mask mask.Func, depth int) slog.Attr 
 	case slog.KindAny:
 		// Top-level key matched: mask the entire value as a single
 		// string. Per-subfield masking for KindAny is handled at the
-		// maskAttribute level via descendIntoAny / walkAny, which is
+		// maskAttribute level via walkJSON, which is
 		// where nested matches inside structs/maps/slices are found.
-		return slog.String(attr.Key, maskAny(mask, attr.Value.Any(), depth))
+		return slog.String(attr.Key, maskJSON(mask, attr.Value.Any(), depth))
 
 	default:
 		// For unknown types, convert to string and mask

@@ -2,9 +2,8 @@
 // Use of this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-// Package attrwalk reflects through maps, slices, structs, and LogValuer
-// values so a mask can be applied inside them. Descent stops at a fixed
-// depth and replaces the remainder.
+// Package attrwalk masks the encoding/json representation of arbitrary values.
+// Depth and breadth limits replace uninspectable data with fixed placeholders.
 //
 // # Usage
 //

@@ -99,21 +99,7 @@ func New(next slog.Handler, opts ...Option) (*Handler, error) {
 		return &Handler{Base: handlerbase.NewBase(next)}, nil
 	}
 	walker := &attrwalk.Walker{Match: m.match}
-	if len(m.patterns) == 0 {
-		walker.Candidate = m.candidate
-	}
 	return &Handler{Base: handlerbase.NewBase(next), walker: walker}, nil
-}
-func (m *matcher) candidate(name string) bool {
-	if !m.sensitive {
-		name = strings.ToLower(name)
-	}
-	for field := range m.fields {
-		if field == name || strings.HasSuffix(field, "."+name) {
-			return true
-		}
-	}
-	return false
 }
 func (m *matcher) match(name, path string) mask.Func {
 	if !m.nested {

@@ -128,13 +128,10 @@ func TestHandler_KindAny_MasksSliceOfStructs(t *testing.T) {
 
 	got := store.attrs["users"]
 
-	// Slice descent emits each element as `[N]` with a nested group;
-	// both Password leaves must be masked.
-	require.Equal(t, slog.KindGroup, got.Kind(), "slice descent must produce a group")
-
-	pw, ok := findMaskedLeaf(got, "Password")
-	require.True(t, ok, "at least one Password must be reachable")
-	require.Equal(t, "********", pw)
+	require.Equal(t, []any{
+		map[string]any{"UserID": "a", "Password": "********", "Token": ""},
+		map[string]any{"UserID": "b", "Password": "********", "Token": ""},
+	}, got.Any())
 }
 
 // TestHandler_KindAny_RespectsJSONTagName confirms the masker uses the
@@ -198,11 +195,8 @@ func TestHandler_KindAny_NilValueIsHarmless(t *testing.T) {
 	require.NoError(t, h.Handle(t.Context(), rec))
 }
 
-// TestHandler_KindAny_CleanTypeSkipsWalk pins the type-verdict fast path:
-// with a fields-only configuration, a type whose transitive field names can
-// never match a mask is passed through natively (not rebuilt as a group) —
-// the same rendering it would get from the no-masking fast path in Handle.
-func TestHandler_KindAny_CleanTypeSkipsWalk(t *testing.T) {
+// Clean values also use JSON field representation when rules are active.
+func TestHandler_KindAny_CleanTypeUsesJSON(t *testing.T) {
 	t.Parallel()
 	type clean struct {
 		RequestID string
@@ -220,9 +214,10 @@ func TestHandler_KindAny_CleanTypeSkipsWalk(t *testing.T) {
 	require.NoError(t, h.Handle(t.Context(), rec))
 
 	got := store.attrs["payload"]
-	require.NotEqual(t, slog.KindGroup, got.Kind(),
-		"a type that cannot match any mask must render natively, not as a rebuilt group")
-	require.Equal(t, payload, got.Any())
+	require.Equal(t, slog.KindGroup, got.Kind())
+	name, ok := findMaskedLeaf(got, "RequestID")
+	require.True(t, ok)
+	require.Equal(t, "r-1", name)
 }
 
 // TestHandler_KindAny_PatternsDisableTypeSkip guards the soundness boundary:

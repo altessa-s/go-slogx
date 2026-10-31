@@ -35,7 +35,7 @@ func TestUnexportedEmbeddingsFailClosed(t *testing.T) {
 				require.NoError(t, err)
 				logger.Logger().Info("record", "payload", input)
 				require.NotContains(t, out.String(), "canary")
-				require.Contains(t, out.String(), "unexported embedding")
+				require.Contains(t, out.String(), "********")
 				require.NoError(t, logger.Shutdown(t.Context()))
 			})
 		}
@@ -67,7 +67,7 @@ func TestMatchedContainersAreBounded(t *testing.T) {
 						key, value = "payload", struct{ Password any }{input}
 					}
 					logger.Logger().Info("record", key, value)
-					require.True(t, strings.Contains(out.String(), "exceeded") || strings.Contains(out.String(), "********"))
+					require.True(t, strings.Contains(out.String(), "masking:") || strings.Contains(out.String(), "********"))
 					require.NotContains(t, out.String(), "canary")
 					require.NoError(t, logger.Shutdown(t.Context()))
 				})

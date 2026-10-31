@@ -16,3 +16,7 @@ precedence over bare fields; patterns are considered after exact fields.
 it and installs common credential and contact masks. Explicit rules override
 defaults regardless of option order. Case-insensitive matching is the default.
 The generated bool options accept an explicit bool.
+
+With rules active, arbitrary values are normalized through JSON before masking. Text structs therefore use JSON-shaped groups, including JSON
+field names and omission rules. Marshal errors and ordinary panics fail closed. See [ADR 0007](../../docs/adr/0007-single-redaction-policy.md)
+for representation changes, budget limits, and the defensive preflight required by the pinned encoder.

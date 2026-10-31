@@ -62,12 +62,12 @@ func TestWalkerKindsAndFailClosed(t *testing.T) {
 	var pointer any
 	pointer = &pointer
 	require.Contains(t, fmt.Sprint(w.Attr(slog.Any("cycle", pointer), nil)), "max depth exceeded")
-	for _, input := range []any{nil, (*payload)(nil), time.Unix(0, 0), time.Second, []byte("safe"), text("safe"), map[string]any{}, []string{}, [0]string{}, struct{}{}, 7, true, make(chan int), func() {}} {
-		a := slog.Any("value", input)
-		out := w.Attr(a, nil)
-		require.Equal(t, a.Value.Kind(), out.Value.Kind())
+	for _, input := range []any{nil, (*payload)(nil), time.Unix(0, 0), time.Second, []byte("safe"), text("safe"), map[string]any{}, []string{}, [0]string{}, struct{}{}, 7, true} {
+		require.NotContains(t, fmt.Sprint(w.Attr(slog.Any("value", input), nil)), "canary")
 	}
-	require.Equal(t, "<masking: unsupported map keys>", w.Attr(slog.Any("value", map[int]string{1: "safe"}), nil).Value.String())
+	for _, input := range []any{make(chan int), func() {}} {
+		require.Contains(t, w.Attr(slog.Any("value", input), nil).Value.String(), "JSON encoding failed")
+	}
 	require.Equal(t, slog.Attr{}, w.Attr(slog.Attr{}, nil))
 	for _, a := range []slog.Attr{slog.String("password", "canary"), slog.Int("password", 1), slog.Uint64("password", 1), slog.Float64("password", 1), slog.Bool("password", true), slog.Duration("password", time.Second), slog.Time("password", time.Now()), slog.Any("password", p), slog.Any("password", value{slog.StringValue("canary")})} {
 		require.Equal(t, "********", w.Attr(a, nil).Value.String())
@@ -83,38 +83,13 @@ func TestWalkerKindsAndFailClosed(t *testing.T) {
 	for i := range array {
 		array[i] = i
 	}
-	require.Equal(t, array, w.Attr(slog.Any("array", array), nil).Value.Any())
+	require.Len(t, w.Attr(slog.Any("array", array), nil).Value.Any(), len(array))
 	var nested any = p
 	for range 15 {
 		nested = []any{nested}
 	}
 	require.NotContains(t, fmt.Sprint(w.Attr(slog.Any("deep", nested), nil)), "canary")
 }
-func TestTypeVerdictsAndResolvedPointers(t *testing.T) {
-	t.Parallel()
-	w := &attrwalk.Walker{Match: matcher, Candidate: func(name string) bool { return strings.EqualFold(name, "password") }}
-	for range 2 {
-		for _, v := range []any{struct{ Clean string }{"safe"}, struct{ Public map[string]string }{map[string]string{"Password": "canary"}}, []payload{{Password: "canary"}}, [1]payload{{Password: "canary"}}, struct{ Value any }{payload{Password: "canary"}}, map[int]string{1: "safe"}, time.Now(), value{slog.StringValue("safe")}} {
-			out := w.Attr(slog.Any("v", v), nil)
-			require.NotContains(t, fmt.Sprint(out), "canary")
-		}
-	}
-	type recursive struct{ Next *recursive }
-	r := &recursive{}
-	r.Next = r
-	// An unmaskable recursive type can be passed through; do not format it here.
-	require.Equal(t, slog.KindAny, w.Attr(slog.Any("v", r), nil).Value.Kind())
-	deep := any(payload{Password: "canary"})
-	for range 15 {
-		copy := deep
-		deep = &copy
-	}
-	require.NotContains(t, fmt.Sprint(w.Attr(slog.Any("deep", deep), nil)), "canary")
-	v := value{slog.StringValue("safe")}
-	ptr := &v
-	require.Equal(t, "safe", w.Attr(slog.Any("pointer", &ptr), nil).Value.String())
-}
-
 func TestMatchedCompoundConversionBudget(t *testing.T) {
 	t.Parallel()
 	cyclic := map[string]any{}
@@ -134,58 +109,14 @@ func TestMatchedCompoundConversionBudget(t *testing.T) {
 				attr = slog.Any("payload", map[string]any{"password": input})
 			}
 			out := w.Attr(attr, nil)
-			require.Contains(t, fmt.Sprint(out), "exceeded")
+			require.Contains(t, fmt.Sprint(out), "masking:")
 			require.Zero(t, calls)
 		}
 	}
 	w := &attrwalk.Walker{Match: func(_, _ string) mask.Func {
 		return func(s string) string { return "masked:" + s }
 	}}
-	for _, input := range []any{nil, (*string)(nil), []string{"safe"}, map[string]int{"safe": 1}, struct{ Public string }{"safe"}} {
+	for _, input := range []any{nil, (*string)(nil), []string{"safe"}, map[string]int{"safe": 1}, map[string]any{"Public": "safe"}} {
 		require.Equal(t, "masked:"+fmt.Sprint(input), w.Attr(slog.Any("password", input), nil).Value.String())
-	}
-}
-
-func TestUnexportedEmbeddingTypeCacheFailsClosed(t *testing.T) {
-	t.Parallel()
-	type credentials struct{ Password string }
-	type valueEmbedding struct{ credentials }
-	type pointerEmbedding struct{ *credentials }
-	w := &attrwalk.Walker{
-		Match:     matcher,
-		Candidate: func(name string) bool { return strings.EqualFold(name, "password") },
-	}
-	for range 2 {
-		for _, input := range []any{valueEmbedding{credentials{"canary"}}, pointerEmbedding{&credentials{"canary"}}} {
-			out := w.Attr(slog.Any("payload", input), nil)
-			require.Equal(t, "<masking: unexported embedding>", out.Value.String())
-		}
-	}
-}
-
-// EmbeddedPublic has no matching field; promotion must still invalidate the
-// fields-only fast path so its verdict agrees with the runtime walker.
-type EmbeddedPublic struct{ Public string }
-type EmbeddedScalar string
-
-func TestExportedEmbeddingTypeCacheFailsClosed(t *testing.T) {
-	t.Parallel()
-	w := &attrwalk.Walker{Match: matcher, Candidate: func(name string) bool { return name == "password" }}
-	for range 2 {
-		for _, input := range []any{
-			struct{ EmbeddedPublic }{EmbeddedPublic{"visible"}},
-			struct{ *EmbeddedPublic }{&EmbeddedPublic{"visible"}},
-		} {
-			require.Equal(t, "<masking: promoted embedding>", w.Attr(slog.Any("payload", input), nil).Value.String())
-		}
-	}
-	for _, input := range []any{
-		struct {
-			EmbeddedPublic `json:"named"`
-		}{EmbeddedPublic{"visible"}},
-		struct{ EmbeddedScalar }{EmbeddedScalar("visible")},
-	} {
-		attr := slog.Any("payload", input)
-		require.Equal(t, attr, w.Attr(attr, nil))
 	}
 }

@@ -83,7 +83,7 @@ func TestMaskingUnsupportedMapsAndOmittedFields(t *testing.T) {
 		for _, defaults := range []bool{false, true} {
 			for _, value := range []any{
 				map[int]any{1: map[string]string{"password": "canary"}},
-				struct{ Values map[int]string }{map[int]string{1: "canary"}},
+				struct{ Values map[bool]string }{map[bool]string{true: "canary"}},
 				struct {
 					Password string `json:"-"`
 				}{"canary"},

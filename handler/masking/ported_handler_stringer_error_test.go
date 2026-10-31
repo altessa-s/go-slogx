@@ -22,13 +22,8 @@ type errUnexportedMsg struct{ msg string }
 
 func (e *errUnexportedMsg) Error() string { return e.msg }
 
-// TestHandler_KindAny_StringerOnlyErrorSurvivesDescent guards against the
-// masking descent dropping a value whose payload is unexported. Since
-// fmt.Stringer stopped being treated as atomic, such a value (e.g. a proto
-// validation error) is descended into via reflection, yields no exported
-// fields, and previously collapsed to an empty slog group — which slog omits,
-// making the attribute disappear from the log entirely.
-func TestHandler_KindAny_StringerOnlyErrorSurvivesDescent(t *testing.T) {
+// Private error payloads must not reach native sink formatting.
+func TestHandler_KindAny_PrivateErrorUsesJSON(t *testing.T) {
 	t.Parallel()
 	inner, store := newCaptureHandler()
 	// WithDefaults mirrors the service wiring (factory uses it), so the masking
@@ -41,22 +36,15 @@ func TestHandler_KindAny_StringerOnlyErrorSurvivesDescent(t *testing.T) {
 
 	v, ok := store.attrs["error"]
 	require.True(t, ok, "error attribute must reach the inner handler")
-	require.Contains(t, v.String(), "required field cannot be cleared",
-		"error message must survive masking descent, not collapse to an empty group")
+	require.Equal(t, map[string]any{}, v.Any())
 }
 
-// stringerOnly carries its payload in an unexported field, surfaced only via
-// String() — the fmt.Stringer counterpart of errUnexportedMsg. Since ec3c53a8
-// stopped treating fmt.Stringer as atomic, such a value is descended into and,
-// having no exported fields, would collapse to an empty group without the
-// walkStruct guard.
+// stringerOnly exposes a private payload through native text formatting.
 type stringerOnly struct{ v string }
 
 func (s stringerOnly) String() string { return s.v }
 
-// plainUnexported has neither String() nor Error() and no exported fields — it
-// has no maskable substructure at all, so descent must keep it as-is rather
-// than replace it with an empty group.
+// plainUnexported has no JSON fields.
 type plainUnexported struct{ x int }
 
 // renderThroughMasking logs a single attribute through the masking handler into
@@ -74,11 +62,7 @@ func renderThroughMasking(t *testing.T, attr slog.Attr) string {
 	return buf.String()
 }
 
-// TestHandler_KindAny_NoExportedFieldsSurviveDescent generalizes the
-// protovalidator regression beyond errors: any KindAny value that reflect
-// descent cannot turn into a NON-empty slog group (no exported fields, empty
-// map, empty slice) must be kept as-is and rendered canonically — never
-// collapsed into an empty group, which slog drops from the output entirely.
+// Empty JSON containers remain present instead of becoming omitted slog groups.
 func TestHandler_KindAny_NoExportedFieldsSurviveDescent(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -89,7 +73,7 @@ func TestHandler_KindAny_NoExportedFieldsSurviveDescent(t *testing.T) {
 	}{
 		{"empty map", "meta", map[string]string{}, "meta"},
 		{"empty slice", "ids", []string{}, "ids"},
-		{"stringer only", "note", stringerOnly{v: "hi-stringer"}, "hi-stringer"},
+		{"stringer only", "note", stringerOnly{v: "note"}, "note"},
 		{"plain unexported struct", "blob", plainUnexported{x: 7}, "blob"},
 	}
 	for _, tc := range cases {

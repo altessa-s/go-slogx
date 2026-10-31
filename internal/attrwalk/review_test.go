@@ -31,7 +31,9 @@ func TestH2BreadthBound(t *testing.T) {
 	}
 	for _, a := range []slog.Attr{slog.Any("slice", values), slog.Any("map", entries), slog.Any("struct", reflect.New(reflect.StructOf(fields)).Elem().Interface()), slog.GroupAttrs("group", attrs...)} {
 		out := w.Attr(a, nil)
-		require.Len(t, out.Value.Group(), 257)
+		if a.Value.Kind() == slog.KindGroup {
+			require.Len(t, out.Value.Group(), 257)
+		}
 		require.Contains(t, fmt.Sprint(out), "max breadth exceeded")
 	}
 }
