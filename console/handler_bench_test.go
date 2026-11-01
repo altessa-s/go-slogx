@@ -27,3 +27,19 @@ func BenchmarkHandler(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkTextHandler(b *testing.B) {
+	for _, color := range []bool{false, true} {
+		name := "plain"
+		if color {
+			name = "color"
+		}
+		b.Run(name, func(b *testing.B) {
+			log := slog.New(mustNew(b, io.Discard, console.WithFormat(console.FormatText), console.WithColor(color)))
+			b.ReportAllocs()
+			for b.Loop() {
+				log.Info("record", "key", "value")
+			}
+		})
+	}
+}

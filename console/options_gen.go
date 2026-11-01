@@ -24,6 +24,13 @@ func WithColor(v bool) Option {
 	}
 }
 
+// WithFormat sets the format option.
+func WithFormat(v Format) Option {
+	return func(o *options) {
+		o.format = v
+	}
+}
+
 // WithKeyStyles sets the keyStyles option.
 func WithKeyStyles(v map[string]Style) Option {
 	return func(o *options) {
@@ -84,6 +91,7 @@ func WithTimeFormat[T interface{ string | *string }](v T) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		format:     FormatKeyValue,
 		keyStyles:  make(map[string]Style),
 		level:      DefaultLevel,
 		prefixKey:  DefaultPrefixKey,

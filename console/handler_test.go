@@ -100,6 +100,27 @@ func TestWriteErrors(t *testing.T) {
 	h := mustNew(t, shortWriter{})
 	require.ErrorIs(t, h.Handle(t.Context(), slog.Record{}), io.ErrShortWrite)
 }
+
+func TestTextFormat(t *testing.T) {
+	t.Parallel()
+	var b bytes.Buffer
+	h := mustNew(t, &b, console.WithFormat(console.FormatText), console.WithTimeFormat("2006"), console.WithReplaceAttr(func(groups []string, a slog.Attr) slog.Attr {
+		if a.Key == "secret" {
+			return slog.String(a.Key, "[redacted]")
+		}
+		return a
+	}))
+	record := slog.NewRecord(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), slog.LevelWarn, "ready now", 0)
+	record.AddAttrs(slog.Group("group", slog.String("plain", "word"), slog.String("spaced", "two words")), slog.String("secret", "hidden"))
+	require.NoError(t, h.Handle(t.Context(), record))
+	require.Equal(t, "2026 WARN  ready now group.plain=word group.spaced=\"two words\" secret=[redacted]\n", b.String())
+
+	b.Reset()
+	noTime := slog.NewRecord(time.Time{}, slog.LevelInfo, "ready", 0)
+	require.NoError(t, h.Handle(t.Context(), noTime))
+	require.Equal(t, "INFO  ready\n", b.String())
+}
+
 func FuzzConsoleQuoting(f *testing.F) {
 	f.Add("key\n\x1b", "value\r\n\x1b")
 	f.Fuzz(func(t *testing.T, key, value string) {
@@ -109,5 +130,27 @@ func FuzzConsoleQuoting(f *testing.F) {
 		require.Equal(t, 1, strings.Count(out, "\n"))
 		require.NotContains(t, out, "\r")
 		require.NotContains(t, out, "\x1b")
+	})
+}
+
+func FuzzTextValueQuoting(f *testing.F) {
+	f.Add("plain")
+	f.Add("two words")
+	f.Add("quote\"and=control\n")
+	f.Fuzz(func(t *testing.T, value string) {
+		var b bytes.Buffer
+		h := mustNew(t, &b, console.WithFormat(console.FormatText))
+		record := slog.NewRecord(time.Time{}, slog.LevelInfo, "message", 0)
+		record.AddAttrs(slog.String("key", value))
+		require.NoError(t, h.Handle(t.Context(), record))
+		out := b.String()
+		require.Equal(t, 1, strings.Count(out, "\n"))
+		require.NotContains(t, out, "\r")
+		field := strings.TrimSuffix(strings.TrimPrefix(out, "INFO  message "), "\n")
+		if strings.ContainsAny(value, " \"=") || strings.IndexFunc(value, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+			require.True(t, strings.HasPrefix(field, `key="`))
+		} else {
+			require.Equal(t, "key="+value, field)
+		}
 	})
 }

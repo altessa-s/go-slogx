@@ -26,10 +26,20 @@ const (
 	Cyan   Style = 36
 )
 
+// Format selects the record layout used by the console handler.
+type Format uint8
+
+// Supported record formats.
+const (
+	FormatKeyValue Format = iota
+	FormatText
+)
+
 type options struct {
 	level       slog.Leveler `optgen:"default=DefaultLevel"`
 	addSource   bool         `optval:"param"`
 	color       bool         `optval:"param"`
+	format      Format       `optgen:"default=FormatKeyValue" optval:"param"`
 	timeFormat  string       `optgen:"default=DefaultTimeFormat"`
 	prefixKey   string       `optgen:"default=DefaultPrefixKey"`
 	keyStyles   map[string]Style

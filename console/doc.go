@@ -2,8 +2,9 @@
 // Use of this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-// Package console is a text slog.Handler that writes its own SGR sequences.
-// Color is a per-handler bool. The package sets no process-wide color flag.
+// Package console is a text slog.Handler with quoted key/value and compact
+// human-readable formats. It writes its own SGR sequences; color is a
+// per-handler option and the package sets no process-wide color flag.
 //
 // # Usage
 //
