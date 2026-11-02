@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/stretchr/testify/require"
 
@@ -147,7 +148,7 @@ func FuzzTextValueQuoting(f *testing.F) {
 		require.Equal(t, 1, strings.Count(out, "\n"))
 		require.NotContains(t, out, "\r")
 		field := strings.TrimSuffix(strings.TrimPrefix(out, "INFO  message "), "\n")
-		if strings.ContainsAny(value, " \"=") || strings.IndexFunc(value, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+		if strings.ContainsAny(value, " \"=") || strings.IndexFunc(value, unicode.IsControl) >= 0 {
 			require.True(t, strings.HasPrefix(field, `key="`))
 		} else {
 			require.Equal(t, "key="+value, field)
