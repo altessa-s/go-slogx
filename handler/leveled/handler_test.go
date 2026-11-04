@@ -21,9 +21,11 @@ func TestDynamicLevelAndGroupedSubsystem(t *testing.T) {
 	recorder := slogxtest.NewRecorder()
 	level := new(slog.LevelVar)
 	level.Set(slog.LevelWarn)
+
 	levels := map[string]slog.Level{"verbose": slog.LevelDebug, "off": slogx.LevelOff}
 	h := mustNew(t, recorder, leveled.WithDefaultLevel(level), leveled.WithSubsystemLevels(levels))
 	levels["verbose"] = slog.LevelError
+
 	require.Equal(t, slog.LevelDebug, h.MinLevel().Level())
 	require.Same(t, h, h.WithGroup(""))
 	log := slog.New(h)
@@ -37,6 +39,7 @@ func TestDynamicLevelAndGroupedSubsystem(t *testing.T) {
 	log.Debug("default-visible")
 	level.Set(slogx.LevelOff)
 	log.With(slogx.Module("verbose")).Error("global-off")
+
 	records, err := recorder.Records()
 	require.NoError(t, err)
 	require.Len(t, records, 3)
@@ -58,16 +61,19 @@ func (v subsystemValue) LogValue() slog.Value {
 
 func TestResolvedInlineSubsystem(t *testing.T) {
 	t.Parallel()
+
 	for _, captured := range []bool{false, true} {
 		for _, name := range []string{"off", "verbose"} {
 			for _, shape := range []string{"inline", "valuer", "group-valuer", "named"} {
 				t.Run(fmt.Sprintf("%v/%s/%s", captured, name, shape), func(t *testing.T) {
 					t.Parallel()
+
 					recorder := slogxtest.NewRecorder()
 					h := mustNew(t, recorder, leveled.WithDefaultLevel(slog.LevelWarn),
 						leveled.WithSubsystemLevels(map[string]slog.Level{"off": slogx.LevelOff, "verbose": slog.LevelDebug}))
 					calls := 0
 					attr := slog.String("subsystem", name)
+
 					switch shape {
 					case "inline":
 						attr = slog.GroupAttrs("", slog.GroupAttrs("", attr))
@@ -78,28 +84,35 @@ func TestResolvedInlineSubsystem(t *testing.T) {
 					case "named":
 						attr = slog.GroupAttrs("named", attr)
 					}
+
 					logger := slog.New(h)
+
 					level := slog.LevelError
 					if name == "verbose" {
 						level = slog.LevelDebug
 					}
+
 					if captured {
 						logger = logger.With(attr)
 						logger.Log(t.Context(), level, "record")
 					} else {
 						logger.Log(t.Context(), level, "record", attr)
 					}
+
 					records, err := recorder.Records()
 					require.NoError(t, err)
+
 					visible := name == "verbose"
 					if shape == "named" {
 						visible = name == "off"
 					}
+
 					if visible {
 						require.Len(t, records, 1)
 					} else {
 						require.Empty(t, records)
 					}
+
 					if shape == "valuer" || shape == "group-valuer" {
 						require.Equal(t, 1, calls)
 					}
@@ -117,15 +130,18 @@ func (recursiveInlineValue) LogValue() slog.Value {
 
 func TestRecursiveInlineSubsystemIsBounded(t *testing.T) {
 	t.Parallel()
+
 	for _, captured := range []bool{false, true} {
 		recorder := slogxtest.NewRecorder()
 		logger := slog.New(mustNew(t, recorder))
+
 		attr := slog.Any("", recursiveInlineValue{})
 		if captured {
 			logger.With(attr).Info("record")
 		} else {
 			logger.Info("record", attr)
 		}
+
 		records, err := recorder.Records()
 		require.NoError(t, err)
 		require.Len(t, records, 1)

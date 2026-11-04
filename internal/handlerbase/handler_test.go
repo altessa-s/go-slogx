@@ -15,6 +15,7 @@ import (
 
 func TestImmutableGroups(t *testing.T) {
 	t.Parallel()
+
 	b := handlerbase.NewBase(slog.DiscardHandler)
 	require.Equal(t, slog.DiscardHandler, b.Inner())
 	require.False(t, b.Enabled(t.Context(), slog.LevelInfo))
@@ -24,6 +25,7 @@ func TestImmutableGroups(t *testing.T) {
 	d := c.GroupBase("inner")
 	require.Equal(t, "outer.inner.key", d.GroupPath("key"))
 	require.Equal(t, []string{"outer"}, c.Groups())
+
 	e := d.AttrsBase([]slog.Attr{slog.String("key", "value")})
 	require.Equal(t, d.Groups(), e.Groups())
 	require.Panics(t, func() { handlerbase.NewBase(nil) })

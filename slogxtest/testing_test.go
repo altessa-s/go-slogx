@@ -15,13 +15,17 @@ import (
 
 func TestRecorderAndConformance(t *testing.T) {
 	t.Parallel()
+
 	var r *slogxtest.Recorder
+
 	slogxtest.Conformance(t, func(t *testing.T) slog.Handler { r = slogxtest.NewRecorder(); return r }, func(t *testing.T) map[string]any {
 		rows, err := r.Records()
 		require.NoError(t, err)
 		require.Len(t, rows, 1)
+
 		return rows[0]
 	})
+
 	r = slogxtest.NewRecorder()
 	require.Same(t, r, r.WithGroup(""))
 	require.False(t, slogxtest.Discard().Enabled(t.Context(), slog.LevelError))

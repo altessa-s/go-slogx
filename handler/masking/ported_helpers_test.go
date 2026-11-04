@@ -18,8 +18,10 @@ import (
 // the new validated constructor and rule values. No compatibility API is shipped.
 func portedHandler(t *testing.T, next slog.Handler, opts ...masking.Option) slog.Handler {
 	t.Helper()
+
 	h, err := masking.New(next, opts...)
 	require.NoError(t, err)
+
 	return h
 }
 func fieldOption(name string, f mask.Func) masking.Option {

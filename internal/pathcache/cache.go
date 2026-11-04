@@ -21,9 +21,12 @@ type shard[T any] struct {
 // Get returns a cached decision.
 func (c *Cache[T]) Get(key string) (T, bool) {
 	shard := &c.shards[maphash.Comparable(cacheSeed, key)%uint64(len(c.shards))]
+
 	shard.mu.RLock()
 	defer shard.mu.RUnlock()
+
 	v, ok := shard.entries[key]
+
 	return v, ok
 }
 
@@ -33,12 +36,15 @@ func (c *Cache[T]) Put(key string, v T) {
 	if len(key) > maxPathBytes {
 		return
 	}
+
 	shard := &c.shards[maphash.Comparable(cacheSeed, key)%uint64(len(c.shards))]
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
+
 	if shard.entries == nil || len(shard.entries) >= maxEntries/len(c.shards) {
 		shard.entries = make(map[string]T)
 	}
+
 	shard.entries[key] = v
 }
 

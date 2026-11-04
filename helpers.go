@@ -22,6 +22,7 @@ func Error(err error) slog.Attr {
 	if err == nil {
 		return slog.Attr{}
 	}
+
 	return slog.Any(ErrorKey, err)
 }
 
@@ -33,27 +34,33 @@ func Error(err error) slog.Attr {
 //	logger.Info("user", slogx.String("name", namePtr)) // nil-safe
 func String[T interface{ ~string | ~*string }](key string, value T) slog.Attr {
 	var val string
+
 	switch v := any(value).(type) {
 	case *string:
 		if v == nil {
 			return slog.Attr{}
 		}
+
 		val = *v
 	case string:
 		if v == "" {
 			return slog.Attr{}
 		}
+
 		val = v
 	default:
 		rv, ok := derefNamed(value)
 		if !ok || rv.String() == "" {
 			return slog.Attr{}
 		}
+
 		val = rv.String()
 	}
+
 	if val == "" {
 		return slog.Attr{}
 	}
+
 	return slog.Attr{Key: key, Value: slog.StringValue(val)}
 }
 
@@ -65,6 +72,7 @@ func String[T interface{ ~string | ~*string }](key string, value T) slog.Attr {
 //	logger.Debug("processed", slogx.Int("count", countPtr)) // nil-safe
 func Int[T interface{ ~int | ~*int }](key string, value T) slog.Attr {
 	var val int
+
 	switch v := any(value).(type) {
 	case int:
 		val = v
@@ -72,14 +80,17 @@ func Int[T interface{ ~int | ~*int }](key string, value T) slog.Attr {
 		if v == nil {
 			return slog.Attr{}
 		}
+
 		val = *v
 	default:
 		rv, ok := derefNamed(value)
 		if !ok {
 			return slog.Attr{}
 		}
+
 		val = int(rv.Int())
 	}
+
 	return slog.Attr{Key: key, Value: slog.IntValue(val)}
 }
 
@@ -93,6 +104,7 @@ func Int64[T interface {
 	~int64 | ~*int64 | ~int32 | ~*int32
 }](key string, value T) slog.Attr {
 	var val int64
+
 	switch v := any(value).(type) {
 	case int64:
 		val = v
@@ -100,11 +112,13 @@ func Int64[T interface {
 		if v == nil {
 			return slog.Attr{}
 		}
+
 		val = *v
 	case *int32:
 		if v == nil {
 			return slog.Attr{}
 		}
+
 		val = int64(*v)
 	case int32:
 		val = int64(v)
@@ -113,8 +127,10 @@ func Int64[T interface {
 		if !ok {
 			return slog.Attr{}
 		}
+
 		val = rv.Int()
 	}
+
 	return slog.Attr{Key: key, Value: slog.Int64Value(val)}
 }
 
@@ -127,9 +143,11 @@ func derefNamed(value any) (rv reflect.Value, ok bool) {
 	if rv.Kind() != reflect.Pointer {
 		return rv, true
 	}
+
 	if rv.IsNil() {
 		return reflect.Value{}, false
 	}
+
 	return rv.Elem(), true
 }
 
@@ -154,6 +172,7 @@ func Modules(names ...string) []any {
 	for i, name := range names {
 		out[i] = Module(name)
 	}
+
 	return out
 }
 

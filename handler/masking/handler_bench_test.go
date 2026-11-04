@@ -18,10 +18,13 @@ func BenchmarkHandler(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+
 		return h
 	}()
 	log := slog.New(h)
+
 	b.ReportAllocs()
+
 	for b.Loop() {
 		log.Info("record", "public", "value")
 	}
@@ -42,9 +45,11 @@ func BenchmarkMaskingShapes(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
+
 			log := slog.New(handler)
 			ctx := b.Context()
 			b.ReportAllocs()
+
 			for b.Loop() {
 				log.LogAttrs(ctx, slog.LevelInfo, "record", tc.attr)
 			}

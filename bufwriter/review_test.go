@@ -24,16 +24,20 @@ func TestM1FlushResetsJoinedErrors(t *testing.T) {
 			if calls == 1 {
 				return 0, io.ErrClosedPipe
 			}
+
 			if calls == 2 {
 				return 0, io.ErrUnexpectedEOF
 			}
+
 			return len(p), nil
 		}))
 		require.NoError(t, err)
+
 		for range 2 {
 			_, err = w.Write([]byte("line"))
 			require.NoError(t, err)
 		}
+
 		err = w.Flush(t.Context())
 		require.ErrorIs(t, err, io.ErrClosedPipe)
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
@@ -45,6 +49,7 @@ func TestM1FlushResetsJoinedErrors(t *testing.T) {
 }
 func TestM2ClosedWriteReportsOnce(t *testing.T) {
 	t.Parallel()
+
 	reports := 0
 	w, err := bufwriter.New(io.Discard, bufwriter.WithOnError(func(err error) {
 		if errors.Is(err, bufwriter.ErrClosed) {
@@ -53,10 +58,12 @@ func TestM2ClosedWriteReportsOnce(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	require.NoError(t, w.Close(t.Context()))
+
 	for range 2 {
 		n, err := w.Write([]byte("record"))
 		require.NoError(t, err)
 		require.Equal(t, 6, n)
 	}
+
 	require.Equal(t, 2, reports)
 }

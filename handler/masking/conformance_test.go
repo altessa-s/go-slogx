@@ -16,7 +16,9 @@ import (
 
 func TestConformance(t *testing.T) {
 	t.Parallel()
+
 	var recorder *slogxtest.Recorder
+
 	slogxtest.Conformance(t, func(t *testing.T) slog.Handler {
 		recorder = slogxtest.NewRecorder()
 		return func() slog.Handler { h, err := masking.New(recorder); require.NoError(t, err); return h }()
@@ -24,6 +26,7 @@ func TestConformance(t *testing.T) {
 		records, err := recorder.Records()
 		require.NoError(t, err)
 		require.Len(t, records, 1)
+
 		return records[0]
 	})
 }

@@ -17,11 +17,13 @@ import (
 
 func TestCacheSeparatesLiteralAndGroupedKeys(t *testing.T) {
 	t.Parallel()
+
 	for _, captured := range []bool{false, true} {
 		for _, groupedFirst := range []bool{false, true} {
 			r := slogxtest.NewRecorder()
 			h, err := masking.New(r, masking.WithNested(true), masking.WithRules(mask.Rule{Field: "password", Mask: mask.Fixed("safe")}))
 			require.NoError(t, err)
+
 			log := slog.New(h)
 			literal := func() {
 				if captured {
@@ -30,6 +32,7 @@ func TestCacheSeparatesLiteralAndGroupedKeys(t *testing.T) {
 					log.Info("literal", "account.password", "visible")
 				}
 			}
+
 			grouped := func() {
 				if captured {
 					log.WithGroup("account").With("password", "canary").Info("grouped")
@@ -44,12 +47,15 @@ func TestCacheSeparatesLiteralAndGroupedKeys(t *testing.T) {
 				literal()
 				grouped()
 			}
+
 			rows, err := r.Records()
 			require.NoError(t, err)
+
 			literalIndex, groupedIndex := 0, 1
 			if groupedFirst {
 				literalIndex, groupedIndex = 1, 0
 			}
+
 			require.Equal(t, "visible", rows[literalIndex]["account.password"])
 			require.Equal(t, map[string]any{"password": "safe"}, rows[groupedIndex]["account"])
 		}

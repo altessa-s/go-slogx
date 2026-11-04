@@ -29,6 +29,7 @@ func (nullJSONMarshaler) MarshalJSON() ([]byte, error) {
 
 func TestJSONEmptyAttributeKeyPreservesNull(t *testing.T) {
 	t.Parallel()
+
 	cases := []struct {
 		name string
 		attr slog.Attr
@@ -49,27 +50,34 @@ func TestJSONEmptyAttributeKeyPreservesNull(t *testing.T) {
 			for _, captured := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/group=%s/captured=%t", tc.name, group, captured), func(t *testing.T) {
 					t.Parallel()
+
 					var buf bytes.Buffer
+
 					h := portedHandler(t, slog.NewJSONHandler(&buf, nil), masking.WithDefaults(true))
 					logger := slog.New(h)
 					attr := tc.attr
+
 					switch group {
 					case "WithGroup":
 						logger = logger.WithGroup("root")
 					case "attribute":
 						attr = slog.Group("root", attr)
 					}
+
 					attrs := []slog.Attr{attr}
 					if captured {
 						logger = slog.New(logger.Handler().WithAttrs(attrs))
 						attrs = nil
 					}
+
 					logger.LogAttrs(t.Context(), slog.LevelInfo, "test", attrs...)
+
 					var record map[string]any
 					require.NoError(t, json.Unmarshal(buf.Bytes(), &record))
 					delete(record, "time")
 					delete(record, "level")
 					delete(record, "msg")
+
 					want := map[string]any{}
 					if !tc.omit {
 						want[""] = nil
@@ -77,6 +85,7 @@ func TestJSONEmptyAttributeKeyPreservesNull(t *testing.T) {
 							want = map[string]any{"root": want}
 						}
 					}
+
 					require.Equal(t, want, record)
 				})
 			}
@@ -86,39 +95,51 @@ func TestJSONEmptyAttributeKeyPreservesNull(t *testing.T) {
 
 func TestJSONEmptyAttributeKeyPreservesShapeAndMaskPaths(t *testing.T) {
 	t.Parallel()
+
 	for _, grouped := range []bool{false, true} {
 		for _, captured := range []bool{false, true} {
 			for _, matched := range []bool{false, true} {
 				t.Run(fmt.Sprintf("grouped=%t/captured=%t/matched=%t", grouped, captured, matched), func(t *testing.T) {
 					t.Parallel()
+
 					path := ".private"
 					if grouped {
 						path = "root." + path
 					}
+
 					opts := []masking.Option{masking.WithDefaults(true)}
 					wantPrivate := "hidden"
+
 					if matched {
 						opts = append(opts, masking.WithRules(mask.Rule{Field: path, Mask: mask.Full()}))
 						wantPrivate = "********"
 					}
+
 					var buf bytes.Buffer
+
 					h := portedHandler(t, slog.NewJSONHandler(&buf, nil), opts...)
+
 					logger := slog.New(h)
 					if grouped {
 						logger = logger.WithGroup("root")
 					}
+
 					input := map[string]any{"public": "visible", "private": "hidden"}
+
 					attrs := []slog.Attr{slog.Any("", input), slog.String("private", "visible")}
 					if captured {
 						logger = slog.New(logger.Handler().WithAttrs(attrs))
 						attrs = nil
 					}
+
 					logger.LogAttrs(t.Context(), slog.LevelInfo, "test", attrs...)
+
 					var record map[string]any
 					require.NoError(t, json.Unmarshal(buf.Bytes(), &record))
 					delete(record, "time")
 					delete(record, "level")
 					delete(record, "msg")
+
 					want := map[string]any{
 						"":        map[string]any{"public": "visible", "private": wantPrivate},
 						"private": "visible",
@@ -126,6 +147,7 @@ func TestJSONEmptyAttributeKeyPreservesShapeAndMaskPaths(t *testing.T) {
 					if grouped {
 						want = map[string]any{"root": want}
 					}
+
 					require.Equal(t, want, record)
 					require.Equal(t, map[string]any{"public": "visible", "private": "hidden"}, input)
 				})
@@ -136,6 +158,7 @@ func TestJSONEmptyAttributeKeyPreservesShapeAndMaskPaths(t *testing.T) {
 
 func TestJSONEmptyKeysPreserveShapeAndMaskPaths(t *testing.T) {
 	t.Parallel()
+
 	cases := []struct {
 		name   string
 		input  string
@@ -155,33 +178,42 @@ func TestJSONEmptyKeysPreserveShapeAndMaskPaths(t *testing.T) {
 				if captured {
 					name = tc.name + "/captured"
 				}
+
 				if matched {
 					name += "/masked"
 				} else {
 					name += "/preserved"
 				}
+
 				t.Run(name, func(t *testing.T) {
 					t.Parallel()
+
 					var input any
 					require.NoError(t, json.Unmarshal([]byte(tc.input), &input))
+
 					path, want := "unmatched", tc.input
 					if matched {
 						path, want = tc.path, tc.masked
 					}
+
 					var buf bytes.Buffer
+
 					h := portedHandler(t, slog.NewJSONHandler(&buf, nil),
 						masking.WithNested(true),
 						masking.WithRules(mask.Rule{Field: path, Mask: mask.Full()}))
 					logger := slog.New(h).WithGroup("root")
+
 					attr := slog.Any("payload", input)
 					if captured {
 						logger.With(attr).InfoContext(t.Context(), "test")
 					} else {
 						logger.LogAttrs(t.Context(), slog.LevelInfo, "test", attr)
 					}
+
 					var record map[string]json.RawMessage
 					require.NoError(t, json.Unmarshal(buf.Bytes(), &record))
 					require.JSONEq(t, `{"payload":`+want+`}`, string(record["root"]))
+
 					unchanged, err := json.Marshal(input)
 					require.NoError(t, err)
 					require.JSONEq(t, tc.input, string(unchanged))

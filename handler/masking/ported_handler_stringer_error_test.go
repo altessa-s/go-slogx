@@ -25,6 +25,7 @@ func (e *errUnexportedMsg) Error() string { return e.msg }
 // Private error payloads must not reach native sink formatting.
 func TestHandler_KindAny_PrivateErrorUsesJSON(t *testing.T) {
 	t.Parallel()
+
 	inner, store := newCaptureHandler()
 	// WithDefaults mirrors the service wiring (factory uses it), so the masking
 	// reflect-descent path is active rather than the no-rules fast path.
@@ -54,17 +55,21 @@ type plainUnexported struct{ x int }
 // what actually proves an attribute survives to the output.
 func renderThroughMasking(t *testing.T, attr slog.Attr) string {
 	t.Helper()
+
 	var buf bytes.Buffer
+
 	h := portedHandler(t, slog.NewTextHandler(&buf, nil), masking.WithDefaults(true))
 	rec := slog.NewRecord(time.Time{}, slog.LevelWarn, "validation failed", 0)
 	rec.AddAttrs(attr)
 	require.NoError(t, h.Handle(t.Context(), rec))
+
 	return buf.String()
 }
 
 // Empty JSON containers remain present instead of becoming omitted slog groups.
 func TestHandler_KindAny_NoExportedFieldsSurviveDescent(t *testing.T) {
 	t.Parallel()
+
 	cases := []struct {
 		name  string
 		key   string

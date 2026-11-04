@@ -42,10 +42,14 @@ func (resolvedJSON) MarshalJSON() ([]byte, error) { panic("LogValue must precede
 
 func TestJSONRepresentationBypasses(t *testing.T) {
 	t.Parallel()
+
 	cyclic := map[string]any{}
 	cyclic["self"] = cyclic
+
 	var pointer any
+
 	pointer = &pointer
+
 	cases := []struct {
 		name  string
 		value any
@@ -92,23 +96,30 @@ func TestJSONRepresentationBypasses(t *testing.T) {
 				for _, captured := range []bool{false, true} {
 					t.Run(fmt.Sprintf("%s/%v/defaults=%v/captured=%v", tc.name, format, defaults, captured), func(t *testing.T) {
 						t.Parallel()
+
 						var out bytes.Buffer
+
 						l, err := setup.New(&out, setup.WithFormat(format), setup.WithMaskDefaults(defaults), setup.WithMaskRules(mask.Rule{Field: "password"}))
 						require.NoError(t, err)
+
 						attr := slog.Any("payload", tc.value)
 						h := l.Logger().Handler()
 						r := slog.Record{Message: "record"}
+
 						if captured {
 							h = h.WithAttrs([]slog.Attr{attr})
 						} else {
 							r.AddAttrs(attr)
 						}
+
 						require.NoError(t, h.Handle(t.Context(), r))
 						require.NotContains(t, out.String(), "canary")
 						require.Contains(t, out.String(), tc.want)
+
 						if format == setup.JSON {
 							require.True(t, json.Valid(out.Bytes()))
 						}
+
 						require.NoError(t, l.Shutdown(t.Context()))
 					})
 				}
@@ -119,29 +130,37 @@ func TestJSONRepresentationBypasses(t *testing.T) {
 
 func TestReviewCacheAndCallbackBypasses(t *testing.T) {
 	t.Parallel()
+
 	for _, format := range []setup.Format{setup.Text, setup.JSON} {
 		for _, captured := range []bool{false, true} {
 			for _, callback := range []string{"direct", "catalog"} {
 				t.Run(fmt.Sprintf("%v/%v/%s", format, captured, callback), func(t *testing.T) {
 					t.Parallel()
+
 					fn := mask.Func(func(string) string { panic("canary") })
+
 					if callback == "catalog" {
 						var err error
+
 						fn, err = mask.Regexp(".*", fn)
 						require.NoError(t, err)
 					}
+
 					var out bytes.Buffer
+
 					l, err := setup.New(&out, setup.WithFormat(format), setup.WithMaskDefaults(true), setup.WithMaskRules(mask.Rule{Field: "password", Mask: fn}))
 					require.NoError(t, err)
 					// R1: warm the path cache with a literal key before a grouped key.
 					log := l.Logger()
 					log.Info("warm", "account.password", "public")
+
 					attr := slog.Group("account", slog.String("password", "canary"))
 					if captured {
 						log.With(attr).Info("record")
 					} else {
 						log.Info("record", attr)
 					}
+
 					require.NotContains(t, out.String(), "canary")
 					require.Contains(t, out.String(), "********")
 				})
@@ -156,32 +175,40 @@ func (v subsystemValue) LogValue() slog.Value { return slog.StringValue(string(v
 
 func TestR7SubsystemRepresentations(t *testing.T) {
 	t.Parallel()
+
 	for _, format := range []setup.Format{setup.Text, setup.JSON} {
 		for _, captured := range []bool{false, true} {
 			for _, disabled := range []bool{false, true} {
 				for _, inline := range []bool{false, true} {
 					t.Run(fmt.Sprintf("%v/captured=%v/disabled=%v/inline=%v", format, captured, disabled, inline), func(t *testing.T) {
 						t.Parallel()
+
 						var out bytes.Buffer
+
 						threshold := slog.LevelDebug
 						if disabled {
 							threshold = slogx.LevelOff
 						}
+
 						l, err := setup.New(&out, setup.WithFormat(format), setup.WithMaskDefaults(true), setup.WithSubsystemLevels(map[string]slog.Level{"test": threshold}))
 						require.NoError(t, err)
+
 						attr := slog.Any("subsystem", subsystemValue("test"))
 						if inline {
 							attr = slog.GroupAttrs("", attr)
 						}
+
 						log := l.Logger()
 						if captured {
 							log = log.With(attr)
 						}
+
 						if captured {
 							log.Debug("record")
 						} else {
 							log.Debug("record", attr)
 						}
+
 						if disabled {
 							require.Empty(t, out.String())
 						} else {

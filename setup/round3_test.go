@@ -32,6 +32,7 @@ func (valueTextPayload) MarshalText() ([]byte, error) { return []byte("safe"), n
 
 func TestTextMarshalerFieldsRemainMasked(t *testing.T) {
 	t.Parallel()
+
 	for _, format := range []setup.Format{setup.JSON, setup.Text} {
 		for _, defaults := range []bool{false, true} {
 			for _, captured := range []bool{false, true} {
@@ -44,22 +45,28 @@ func TestTextMarshalerFieldsRemainMasked(t *testing.T) {
 					} {
 						t.Run(fmt.Sprintf("%v/defaults=%v/captured=%v/nested=%v/%T", format, defaults, captured, nested, input), func(t *testing.T) {
 							t.Parallel()
+
 							var out bytes.Buffer
+
 							opts := []setup.Option{setup.WithFormat(format), setup.WithMaskDefaults(defaults)}
 							if !defaults {
 								opts = append(opts, setup.WithMaskRules(mask.Rule{Field: "Password", Mask: mask.Full()}))
 							}
+
 							logger, err := setup.New(&out, opts...)
 							require.NoError(t, err)
+
 							if nested {
 								input = struct{ Child any }{input}
 							}
+
 							log := logger.Logger()
 							if captured {
 								log.With("payload", input).Info("record")
 							} else {
 								log.Info("record", "payload", input)
 							}
+
 							require.NotContains(t, out.String(), "canary")
 							require.True(t, bytes.Contains(out.Bytes(), []byte("********")) || bytes.Contains(out.Bytes(), []byte("safe")))
 							require.NoError(t, logger.Shutdown(t.Context()))
@@ -89,6 +96,7 @@ func TestPromotedEmbeddingsFailClosed(t *testing.T) {
 	})).Elem()
 	conflict.Field(0).Set(reflect.ValueOf(Credentials{"canary"}))
 	conflict.Field(1).Set(reflect.ValueOf(OtherCredentials{"canary"}))
+
 	for _, format := range []setup.Format{setup.JSON, setup.Text} {
 		for _, captured := range []bool{false, true} {
 			for _, input := range []any{
@@ -108,16 +116,20 @@ func TestPromotedEmbeddingsFailClosed(t *testing.T) {
 			} {
 				t.Run(fmt.Sprintf("%v/captured=%v/%T", format, captured, input), func(t *testing.T) {
 					t.Parallel()
+
 					var out bytes.Buffer
+
 					logger, err := setup.New(&out, setup.WithFormat(format), setup.WithMaskDefaults(true),
 						setup.WithMaskRules(mask.Rule{Field: "payload.password", Mask: mask.Full()}))
 					require.NoError(t, err)
+
 					log := logger.Logger()
 					if captured {
 						log.With("payload", input).Info("record")
 					} else {
 						log.Info("record", "payload", input)
 					}
+
 					require.NotContains(t, out.String(), "canary")
 					require.NoError(t, logger.Shutdown(t.Context()))
 				})

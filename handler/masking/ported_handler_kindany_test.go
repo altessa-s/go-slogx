@@ -21,14 +21,17 @@ func findMaskedLeaf(v slog.Value, name string) (string, bool) {
 	if v.Kind() != slog.KindGroup {
 		return "", false
 	}
+
 	for _, a := range v.Group() {
 		if a.Key == name {
 			return a.Value.String(), true
 		}
+
 		if got, ok := findMaskedLeaf(a.Value, name); ok {
 			return got, true
 		}
 	}
+
 	return "", false
 }
 
@@ -46,6 +49,7 @@ type leakyPayload struct {
 // verbatim.
 func TestHandler_KindAny_MasksNestedStructFields(t *testing.T) {
 	t.Parallel()
+
 	inner, store := newCaptureHandler()
 	h := portedHandler(t, inner,
 		fieldOption("Password", fullMask()),
@@ -83,6 +87,7 @@ func TestHandler_KindAny_MasksNestedStructFields(t *testing.T) {
 // (common shape for opaque request payloads).
 func TestHandler_KindAny_MasksMapEntries(t *testing.T) {
 	t.Parallel()
+
 	inner, store := newCaptureHandler()
 	h := portedHandler(t, inner,
 		fieldOption("apiKey", fullMask()),
@@ -113,6 +118,7 @@ func TestHandler_KindAny_MasksMapEntries(t *testing.T) {
 // slice elements — a common shape for batch payloads.
 func TestHandler_KindAny_MasksSliceOfStructs(t *testing.T) {
 	t.Parallel()
+
 	inner, store := newCaptureHandler()
 	h := portedHandler(t, inner,
 		fieldOption("Password", fullMask()),
@@ -139,9 +145,11 @@ func TestHandler_KindAny_MasksSliceOfStructs(t *testing.T) {
 // JSON handlers typically emit so configured masks behave consistently.
 func TestHandler_KindAny_RespectsJSONTagName(t *testing.T) {
 	t.Parallel()
+
 	type Body struct {
 		ClientToken string `json:"token"`
 	}
+
 	inner, store := newCaptureHandler()
 	h := portedHandler(t, inner,
 		fieldOption("token", fullMask()), // matches json tag, not Go field name
@@ -164,6 +172,7 @@ func TestHandler_KindAny_RespectsJSONTagName(t *testing.T) {
 // downstream handlers render them natively.
 func TestHandler_KindAny_SkipsAtomicTypes(t *testing.T) {
 	t.Parallel()
+
 	inner, store := newCaptureHandler()
 	h := portedHandler(t, inner,
 		fieldOption("Password", fullMask()),
@@ -184,6 +193,7 @@ func TestHandler_KindAny_SkipsAtomicTypes(t *testing.T) {
 // walker must not panic.
 func TestHandler_KindAny_NilValueIsHarmless(t *testing.T) {
 	t.Parallel()
+
 	inner, _ := newCaptureHandler()
 	h := portedHandler(t, inner,
 		fieldOption("Password", fullMask()),
@@ -198,10 +208,12 @@ func TestHandler_KindAny_NilValueIsHarmless(t *testing.T) {
 // Clean values also use JSON field representation when rules are active.
 func TestHandler_KindAny_CleanTypeUsesJSON(t *testing.T) {
 	t.Parallel()
+
 	type clean struct {
 		RequestID string
 		Attempts  int
 	}
+
 	inner, store := newCaptureHandler()
 	h := portedHandler(t, inner,
 		fieldOption("Password", fullMask()),
@@ -225,9 +237,11 @@ func TestHandler_KindAny_CleanTypeUsesJSON(t *testing.T) {
 // verdict must stay off and even a "clean" type must still be walked.
 func TestHandler_KindAny_PatternsDisableTypeSkip(t *testing.T) {
 	t.Parallel()
+
 	type clean struct {
 		RequestID string
 	}
+
 	inner, store := newCaptureHandler()
 	h := portedHandler(t, inner,
 		patternOption(`(?i)request`, fullMask()),

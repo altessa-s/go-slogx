@@ -14,6 +14,7 @@ import (
 
 func TestCatalogPatternRecoversReplacementPanic(t *testing.T) {
 	t.Parallel()
+
 	c, err := mask.NewCatalog(mask.WithMasks(map[string]mask.Func{
 		"panicking": func(string) string { panic("canary") },
 	}))

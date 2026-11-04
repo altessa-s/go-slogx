@@ -33,10 +33,12 @@ func (h *captureHandler) Enabled(context.Context, slog.Level) bool { return true
 
 func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
 	h.store.attrs = make(map[string]slog.Value)
+
 	r.Attrs(func(a slog.Attr) bool {
 		h.store.attrs[a.Key] = a.Value
 		return true
 	})
+
 	return nil
 }
 
@@ -50,6 +52,7 @@ func (h *captureHandler) WithGroup(string) slog.Handler {
 
 func TestHandler_WithAttrs_PreservesPatterns(t *testing.T) {
 	t.Parallel()
+
 	inner, store := newCaptureHandler()
 	h := portedHandler(t, inner,
 		patternOption(`(?i).*secret.*`, fullMask()),
@@ -68,6 +71,7 @@ func TestHandler_WithAttrs_PreservesPatterns(t *testing.T) {
 
 func TestHandler_WithGroup_PreservesPatterns(t *testing.T) {
 	t.Parallel()
+
 	inner, store := newCaptureHandler()
 	h := portedHandler(t, inner,
 		patternOption(`(?i).*secret.*`, fullMask()),
@@ -86,6 +90,7 @@ func TestHandler_WithGroup_PreservesPatterns(t *testing.T) {
 
 func TestHandler_MasksByFieldPattern(t *testing.T) {
 	t.Parallel()
+
 	inner, store := newCaptureHandler()
 	h := portedHandler(t, inner,
 		masking.WithNested(true),

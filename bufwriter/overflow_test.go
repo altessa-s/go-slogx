@@ -26,6 +26,7 @@ func (w *gateWriter) Write(p []byte) (int, error) {
 		close(w.entered)
 		<-w.release
 	}
+
 	return len(p), nil
 }
 func TestOverflowCloseHonorsContext(t *testing.T) {
@@ -37,11 +38,16 @@ func TestOverflowCloseHonorsContext(t *testing.T) {
 		_, err = w.Write([]byte("first"))
 		require.NoError(t, err)
 		<-sink.entered
+
 		_, err = w.Write([]byte("queued"))
 		require.NoError(t, err)
+
 		complete := make(chan error, 1)
+
 		go func() { _, err := w.Write([]byte("overflow")); complete <- err }()
+
 		synctest.Wait()
+
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		require.ErrorIs(t, w.Close(ctx), context.Canceled)
@@ -60,13 +66,19 @@ func TestFlushWaitsForOverflow(t *testing.T) {
 		_, err = w.Write([]byte("first"))
 		require.NoError(t, err)
 		<-sink.entered
+
 		_, err = w.Write([]byte("queued"))
 		require.NoError(t, err)
+
 		complete := make(chan error, 1)
+
 		go func() { _, err := w.Write([]byte("overflow")); complete <- err }()
+
 		synctest.Wait()
+
 		flushed := make(chan error, 1)
 		go func() { flushed <- w.Flush(t.Context()) }()
+
 		close(sink.release)
 		require.NoError(t, <-flushed)
 		require.NoError(t, <-complete)

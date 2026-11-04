@@ -36,11 +36,13 @@ func render(tb testing.TB, build func(secret string) slog.Attr, secret string) s
 	tb.Helper()
 
 	var sb strings.Builder
+
 	inner := slog.NewTextHandler(&sb, &slog.HandlerOptions{
 		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.TimeKey {
 				return slog.Attr{}
 			}
+
 			return a
 		},
 	})
@@ -95,6 +97,7 @@ func FuzzMaskedFieldsDoNotReachTheOutput(f *testing.F) {
 		func(secret string) slog.Attr {
 			n := &nested{User: "svc", Password: secret}
 			n.Inner = n
+
 			return slog.Any("account", n)
 		},
 	}
@@ -145,6 +148,7 @@ func FuzzUnmaskedFieldsAreUntouched(f *testing.F) {
 				if a.Key == slog.TimeKey {
 					return slog.Attr{}
 				}
+
 				return a
 			},
 		})).LogAttrs(t.Context(), slog.LevelInfo, "msg", slog.String("order_id", value))

@@ -39,6 +39,7 @@ func Fixed(replacement string) Func {
 		if s == "" {
 			return ""
 		}
+
 		return replacement
 	}
 }
@@ -48,15 +49,19 @@ func Partial(first, last int, r rune) (Func, error) {
 	if first < 0 || last < 0 || !utf8.ValidRune(r) {
 		return nil, ErrParams
 	}
+
 	return func(s string) string {
 		chars := []rune(s)
+
 		start, end := first, len(chars)-last
 		if first >= len(chars) || last >= len(chars)-first {
 			start, end = 0, len(chars)
 		}
+
 		for i := start; i < end; i++ {
 			chars[i] = r
 		}
+
 		return string(chars)
 	}, nil
 }
@@ -68,11 +73,14 @@ func Email() Func {
 		if !ok {
 			return Full()(s)
 		}
+
 		runes := []rune(local)
 		if len(runes) <= visibleEmailEdges {
 			return "***@" + domain
 		}
+
 		hidden := min(len(runes)-visibleEmailEdges, maxEmailMaskRunes)
+
 		return string(runes[0]) + strings.Repeat("*", hidden) + string(runes[len(runes)-1]) + "@" + domain
 	}
 }
@@ -81,10 +89,12 @@ func Email() Func {
 // Short nonempty inputs use the fixed full mask.
 func Phone() Func {
 	partial, _ := Partial(visiblePrefix, visibleSuffix, '*')
+
 	return func(s string) string {
 		if utf8.RuneCountInString(s) < minimumPhoneRunes {
 			return Full()(s)
 		}
+
 		return partial(s)
 	}
 }
@@ -99,27 +109,35 @@ func URL() Func {
 		if s == "" {
 			return ""
 		}
+
 		u, err := url.Parse(s)
 		if err != nil || u.Scheme == "" || u.Host == "" || u.Opaque != "" {
 			return Full()(s)
 		}
+
 		u.User = nil
 		u.Fragment, u.RawFragment = "", ""
+
 		q, err := url.ParseQuery(u.RawQuery)
 		if err != nil {
 			return Full()(s)
 		}
+
 		for key, values := range q {
 			for i := range values {
 				values[i] = panicPlaceholder
 			}
+
 			q[key] = values
 		}
+
 		u.RawQuery = q.Encode()
 		if u.Path != "" && u.Path != "/" {
 			u.Path = "/********"
 		}
+
 		u.RawPath = ""
+
 		return u.String()
 	}
 }
@@ -129,19 +147,23 @@ func Regexp(pattern string, m Func) (Func, error) {
 	if m == nil {
 		return nil, ErrParams
 	}
+
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrParams, err)
 	}
+
 	return func(s string) (result string) {
 		defer func() {
 			if recover() != nil {
 				result = panicPlaceholder
 			}
 		}()
+
 		if re.MatchString(s) {
 			return m(s)
 		}
+
 		return s
 	}, nil
 }
@@ -158,11 +180,13 @@ func (r Rule) Validate() error {
 	if (r.Field == "") == (r.Pattern == "") {
 		return ErrInvalidRule
 	}
+
 	if r.Pattern != "" {
 		if _, err := regexp.Compile(r.Pattern); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidRule, err)
 		}
 	}
+
 	return nil
 }
 

@@ -31,15 +31,19 @@ func New(next slog.Handler, opts ...Option) (*Handler, error) {
 	if next == nil {
 		return nil, errors.New("leveled: nil handler")
 	}
+
 	o := newOptions(opts...)
 	if o.defaultLevel == nil {
 		o.defaultLevel = DefaultLevel
 	}
+
 	o.subsystemLevels = maps.Clone(o.subsystemLevels)
+
 	floor := slogx.LevelOff
 	for _, level := range o.subsystemLevels {
 		floor = min(floor, level)
 	}
+
 	return &Handler{Base: handlerbase.NewBase(next), opts: o, minimumOverride: floor}, nil
 }
 
@@ -53,6 +57,7 @@ func (m minimum) Level() slog.Level {
 	if level == slogx.LevelOff {
 		return level
 	}
+
 	return min(level, m.override)
 }
 
@@ -63,9 +68,11 @@ func (h *Handler) threshold(name string) slog.Level {
 	if level == slogx.LevelOff {
 		return level
 	}
+
 	if v, ok := h.opts.subsystemLevels[name]; ok {
 		return v
 	}
+
 	return level
 }
 func allowed(level, threshold slog.Level) bool {
@@ -78,6 +85,7 @@ func (h *Handler) Enabled(ctx context.Context, level slog.Level) bool {
 	if h.captured {
 		threshold = h.threshold(h.subsystem)
 	}
+
 	return allowed(level, threshold) && h.Inner().Enabled(ctx, level)
 }
 
@@ -87,18 +95,23 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 	if !h.captured && len(h.Groups()) == 0 {
 		resolved := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
 		found := false
+
 		r.Attrs(func(a slog.Attr) bool {
 			if !found {
 				a, name, found = h.resolveSubsystem(a)
 			}
+
 			resolved.AddAttrs(a)
+
 			return true
 		})
 		r = resolved
 	}
+
 	if !allowed(r.Level, h.threshold(name)) {
 		return nil
 	}
+
 	return h.Inner().Handle(ctx, r)
 }
 
@@ -114,7 +127,9 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 			}
 		}
 	}
+
 	c.Base = h.AttrsBase(attrs)
+
 	return &c
 }
 
@@ -123,8 +138,10 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
+
 	c := *h
 	c.Base = h.GroupBase(name)
+
 	return &c
 }
 
@@ -143,21 +160,26 @@ func (h *Handler) resolveSubsystemDepth(a slog.Attr, depth int) (slog.Attr, stri
 	if depth >= maxSubsystemDepth {
 		return slog.String(a.Key, "<leveled: max depth exceeded>"), "", false
 	}
+
 	a.Value = a.Value.Resolve()
 	if a.Key == h.opts.subsystemKey && a.Value.Kind() == slog.KindString {
 		return a, a.Value.String(), true
 	}
+
 	if a.Key == "" && a.Value.Kind() == slog.KindGroup {
 		attrs := slices.Clone(a.Value.Group())
 		for i, child := range attrs {
 			resolved, name, found := h.resolveSubsystemDepth(child, depth+1)
+
 			attrs[i] = resolved
 			if found {
 				a.Value = slog.GroupValue(attrs...)
 				return a, name, true
 			}
 		}
+
 		a.Value = slog.GroupValue(attrs...)
 	}
+
 	return a, "", false
 }

@@ -20,9 +20,12 @@ func BenchmarkH2LargeSliceDefaults(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
+
 			log := slog.New(h)
 			data := make([]int, size)
+
 			b.ReportAllocs()
+
 			for b.Loop() {
 				log.Info("record", "payload", data)
 			}
@@ -34,12 +37,16 @@ func BenchmarkM5HighCardinalityMaps(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+
 	log := slog.New(h)
+
 	values := make([]map[string]string, 8192)
 	for i := range values {
 		values[i] = map[string]string{"field" + strconv.Itoa(i): "public"}
 	}
+
 	b.ReportAllocs()
+
 	i := 0
 	for b.Loop() {
 		log.Info("record", "payload", values[i%len(values)])
@@ -54,13 +61,16 @@ func BenchmarkJSONRepresentation(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
+
 			r := slog.Record{}
 			r.AddAttrs(slog.Any("payload", struct {
 				Password string
 				Public   string
 			}{"secret", "visible"}))
+
 			ctx := b.Context()
 			b.ReportAllocs()
+
 			for b.Loop() {
 				if err := h.Handle(ctx, r); err != nil {
 					b.Fatal(err)
@@ -76,8 +86,10 @@ func TestNoCandidateRulesAllocations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	r := slog.Record{}
 	r.AddAttrs(slog.Any("payload", struct{ Password string }{"secret"}))
+
 	ctx := t.Context()
 	if got := testing.AllocsPerRun(100, func() {
 		if err := h.Handle(ctx, r); err != nil {

@@ -16,7 +16,9 @@ import (
 
 func TestNewHandler_WithField(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
+
 	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	h := portedHandler(t, inner,
 		fieldOption("password", fullMask()),
@@ -31,7 +33,9 @@ func TestNewHandler_WithField(t *testing.T) {
 
 func TestNewHandler_WithDefaults(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
+
 	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	h := portedHandler(t, inner, masking.WithDefaults(true))
 
@@ -44,7 +48,9 @@ func TestNewHandler_WithDefaults(t *testing.T) {
 
 func TestHandler_Enabled(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
+
 	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})
 	h := portedHandler(t, inner)
 
@@ -54,7 +60,9 @@ func TestHandler_Enabled(t *testing.T) {
 
 func TestHandler_WithAttrs(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
+
 	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	h := portedHandler(t, inner, fieldOption("secret", fullMask()))
 
@@ -64,7 +72,9 @@ func TestHandler_WithAttrs(t *testing.T) {
 
 func TestHandler_WithGroup(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
+
 	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	h := portedHandler(t, inner)
 

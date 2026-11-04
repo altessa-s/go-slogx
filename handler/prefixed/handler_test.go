@@ -17,6 +17,7 @@ import (
 
 func TestDefaultKeyGroupsAndFormatter(t *testing.T) {
 	t.Parallel()
+
 	r := slogxtest.NewRecorder()
 	h := mustNew(t, r)
 	require.Same(t, h, h.WithGroup(""))
@@ -24,6 +25,7 @@ func TestDefaultKeyGroupsAndFormatter(t *testing.T) {
 	log.Info("root", slogx.Module("c"), slog.String("", "empty-key"))
 	log.WithGroup("g").With(slogx.Module("d")).Info("group", slogx.Module("e"))
 	log.Info("non-string", slog.Int(slogx.ModuleKey, 7))
+
 	rows, err := r.Records()
 	require.NoError(t, err)
 	require.Equal(t, "[a:b:c]", rows[0][slogx.ModuleKey])
@@ -35,9 +37,11 @@ func TestDefaultKeyGroupsAndFormatter(t *testing.T) {
 	rows, err = r.Records()
 	require.NoError(t, err)
 	require.NotContains(t, rows[0], slogx.ModuleKey)
+
 	v, ok := prefixed.Plain()([]slog.Value{slog.StringValue("a"), slog.StringValue(""), slog.StringValue("b")}, "/")
 	require.True(t, ok)
 	require.Equal(t, "a/b", v.String())
+
 	_, ok = prefixed.Bracketed()(nil, ":")
 	require.False(t, ok)
 }

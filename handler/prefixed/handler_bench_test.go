@@ -13,7 +13,9 @@ import (
 func BenchmarkHandler(b *testing.B) {
 	h := mustNew(b, slog.NewJSONHandler(io.Discard, nil))
 	log := slog.New(h)
+
 	b.ReportAllocs()
+
 	for b.Loop() {
 		log.Info("record", "public", "value")
 	}

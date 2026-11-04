@@ -33,10 +33,12 @@ type Logger struct {
 // New composes a logger over w. Configuration is validated even at LevelOff.
 func New(w io.Writer, opts ...Option) (*Logger, error) {
 	o := newOptions(opts...)
+
 	terminal := false
 	if file, ok := w.(*os.File); ok {
 		terminal = isatty.IsTerminal(file.Fd()) || isatty.IsCygwinTerminal(file.Fd())
 	}
+
 	if w == nil || o.bufferSize < 0 || o.format > JSON || o.color > ColorNever {
 		return nil, errors.New("setup: invalid writer or options")
 	}
@@ -45,28 +47,35 @@ func New(w io.Writer, opts ...Option) (*Logger, error) {
 	if _, err := masking.New(slog.DiscardHandler, maskOpts...); err != nil {
 		return nil, err
 	}
+
 	l := &Logger{level: new(slog.LevelVar)}
 	l.level.Set(o.level)
 	levelOpts := []leveled.Option{leveled.WithDefaultLevel(l.level), leveled.WithSubsystemKey(o.subsystemKey), leveled.WithSubsystemLevels(o.subsystemLevels)}
+
 	levelPolicy, err := leveled.New(slog.DiscardHandler, levelOpts...)
 	if err != nil {
 		return nil, err
 	}
+
 	floor := levelPolicy.MinLevel()
+
 	if o.bufferSize > 0 {
 		buffer, bufferErr := bufwriter.New(w, bufwriter.WithSize(o.bufferSize), bufwriter.WithOnError(o.onError))
 		if bufferErr != nil {
 			return nil, bufferErr
 		}
+
 		l.buffer = buffer
 		w = buffer
 	}
+
 	success := false
 	defer func() {
 		if !success && l.buffer != nil {
 			_ = l.buffer.Close(context.Background())
 		}
 	}()
+
 	var sink slog.Handler
 	switch {
 	case o.sink != nil:
@@ -78,50 +87,65 @@ func New(w io.Writer, opts ...Option) (*Logger, error) {
 		if o.color == ColorAuto {
 			color = terminal
 		}
+
 		sink, err = console.New(w, console.WithLevel(floor), console.WithColor(color),
 			console.WithAddSource(o.addSource), console.WithTimeFormat(o.timeFormat), console.WithPrefixKey(o.subsystemKey))
 	}
+
 	if err != nil {
 		return nil, err
 	}
+
 	if sink == nil {
 		return nil, errors.New("setup: custom sink returned nil")
 	}
+
 	if l.buffer != nil {
 		sink = &flushing{next: sink, buffer: l.buffer, level: o.bufferBypassLevel}
 	}
+
 	if o.format == Text {
 		sink, err = prefixed.New(sink, prefixed.WithKey(o.subsystemKey))
 		if err != nil {
 			return nil, err
 		}
 	}
+
 	sink, err = masking.New(sink, maskOpts...)
 	if err != nil {
 		return nil, err
 	}
+
 	sink, err = leveled.New(sink, levelOpts...)
 	if err != nil {
 		return nil, err
 	}
+
 	l.logger = slog.New(sink)
+
 	metadata := []slog.Attr{}
 	if o.appName != "" {
 		metadata = append(metadata, slog.String("name", o.appName))
 	}
+
 	if o.appVersion != "" {
 		metadata = append(metadata, slog.String("version", o.appVersion))
 	}
+
 	if o.serviceID != "" {
 		metadata = append(metadata, slog.String("service_id", o.serviceID))
 	}
+
 	if len(metadata) > 0 {
 		l.logger = l.logger.With(slog.GroupAttrs(o.appGroup, metadata...))
 	}
+
 	if len(o.tags) > 0 {
 		l.logger = l.logger.With(coremaps.ToSortedKeyValueSlice(o.tags)...)
 	}
+
 	success = true
+
 	return l, nil
 }
 
@@ -139,6 +163,7 @@ func (l *Logger) Shutdown(ctx context.Context) error {
 	if l.buffer == nil {
 		return nil
 	}
+
 	return l.buffer.Close(ctx)
 }
 
@@ -156,18 +181,22 @@ func (h *flushing) Handle(ctx context.Context, r slog.Record) error {
 	if r.Level >= h.level {
 		err = errors.Join(err, h.buffer.Flush(ctx))
 	}
+
 	return err
 }
 func (h *flushing) WithAttrs(attrs []slog.Attr) slog.Handler {
 	c := *h
 	c.next = h.next.WithAttrs(attrs)
+
 	return &c
 }
 func (h *flushing) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
+
 	c := *h
 	c.next = h.next.WithGroup(name)
+
 	return &c
 }

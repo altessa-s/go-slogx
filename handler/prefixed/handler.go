@@ -37,6 +37,7 @@ func New(next slog.Handler, opts ...Option) (*Handler, error) {
 	if next == nil {
 		return nil, errors.New("prefixed: nil handler")
 	}
+
 	o := newOptions(opts...)
 
 	// Set default formatter if not provided
@@ -69,6 +70,7 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 		})
 
 		var nattrs []slog.Attr
+
 		prefixes, nattrs = h.extractPrefixes(attrs)
 		r = slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
 		r.AddAttrs(nattrs...)
@@ -88,6 +90,7 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 // WithAttrs returns a new Handler with the given attributes, extracting prefix attrs.
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	p, remaining := h.extractPrefixes(attrs)
+
 	return &Handler{
 		Base:     h.AttrsBase(remaining),
 		opts:     h.opts,
@@ -104,10 +107,12 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
+
 	b := h.Base
 	if attr, ok := h.prefixAttr(h.prefixes); ok {
 		b = h.AttrsBase([]slog.Attr{attr})
 	}
+
 	return &Handler{
 		Base: b.GroupBase(name),
 		opts: h.opts,
@@ -120,20 +125,24 @@ func (h *Handler) prefixAttr(prefixes []slog.Value) (slog.Attr, bool) {
 	if len(prefixes) == 0 {
 		return slog.Attr{}, false
 	}
+
 	v, ok := h.opts.formatter(prefixes, h.opts.delimiter)
 	if !ok {
 		return slog.Attr{}, false
 	}
+
 	return slog.Attr{Key: h.opts.key, Value: v}, true
 }
 
 // recordHasPrefix reports whether r carries at least one prefix attribute.
 func (h *Handler) recordHasPrefix(r slog.Record) bool {
 	found := false
+
 	r.Attrs(func(a slog.Attr) bool {
 		found = h.isPrefix(a)
 		return !found
 	})
+
 	return found
 }
 
@@ -141,17 +150,20 @@ func (h *Handler) recordHasPrefix(r slog.Record) bool {
 // Without prefix attributes it returns h.prefixes and attrs unchanged.
 func (h *Handler) extractPrefixes(attrs []slog.Attr) ([]slog.Value, []slog.Attr) {
 	n := 0
+
 	for _, a := range attrs {
 		if h.isPrefix(a) {
 			n++
 		}
 	}
+
 	if n == 0 {
 		return h.prefixes, attrs
 	}
 
 	prefixes := make([]slog.Value, 0, len(h.prefixes)+n)
 	prefixes = append(prefixes, h.prefixes...)
+
 	remaining := make([]slog.Attr, 0, len(attrs)-n)
 	for _, a := range attrs {
 		if h.isPrefix(a) {
@@ -160,6 +172,7 @@ func (h *Handler) extractPrefixes(attrs []slog.Attr) ([]slog.Value, []slog.Attr)
 			remaining = append(remaining, a)
 		}
 	}
+
 	return prefixes, remaining
 }
 
