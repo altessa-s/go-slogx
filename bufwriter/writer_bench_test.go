@@ -16,13 +16,17 @@ func BenchmarkWriter(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+
 	data := []byte("encoded record\n")
+
 	b.ReportAllocs()
+
 	for b.Loop() {
 		if _, err := w.Write(data); err != nil {
 			b.Fatal(err)
 		}
 	}
+
 	if err := w.Close(b.Context()); err != nil {
 		b.Fatal(err)
 	}

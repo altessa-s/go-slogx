@@ -18,9 +18,11 @@ func BenchmarkHandler(b *testing.B) {
 		if color {
 			name = "color"
 		}
+
 		b.Run(name, func(b *testing.B) {
 			log := slog.New(mustNew(b, io.Discard, console.WithColor(color)))
 			b.ReportAllocs()
+
 			for b.Loop() {
 				log.Info("record", "key", "value")
 			}
@@ -34,9 +36,11 @@ func BenchmarkTextHandler(b *testing.B) {
 		if color {
 			name = "color"
 		}
+
 		b.Run(name, func(b *testing.B) {
 			log := slog.New(mustNew(b, io.Discard, console.WithFormat(console.FormatText), console.WithColor(color)))
 			b.ReportAllocs()
+
 			for b.Loop() {
 				log.Info("record", "key", "value")
 			}

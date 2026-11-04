@@ -30,11 +30,13 @@ type options struct {
 func Plain() Formatter {
 	return func(values []slog.Value, delimiter string) (slog.Value, bool) {
 		var parts []string
+
 		for _, v := range values {
 			if s := v.String(); s != "" {
 				parts = append(parts, s)
 			}
 		}
+
 		return slog.StringValue(strings.Join(parts, delimiter)), len(parts) > 0
 	}
 }
@@ -46,6 +48,7 @@ func Bracketed() Formatter {
 		if !ok {
 			return v, false
 		}
+
 		return slog.StringValue("[" + v.String() + "]"), true
 	}
 }

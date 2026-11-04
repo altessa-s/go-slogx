@@ -17,6 +17,7 @@ import (
 
 func TestBoundedConcurrentCache(t *testing.T) {
 	t.Parallel()
+
 	c := new(pathcache.Cache[int])
 	_, ok := c.Get("missing")
 	require.False(t, ok)
@@ -24,15 +25,19 @@ func TestBoundedConcurrentCache(t *testing.T) {
 	n, ok := c.Get("first")
 	require.True(t, ok)
 	require.Equal(t, 1, n)
+
 	for i := range 16384 {
 		c.Put(strconv.Itoa(i), i)
 	}
+
 	_, ok = c.Get("first")
 	require.False(t, ok)
+
 	key := strings.Repeat("a", 257)
 	c.Put(key, 1)
 	_, ok = c.Get(key)
 	require.False(t, ok)
+
 	var wg sync.WaitGroup
 	for range 16 {
 		wg.Go(func() {
@@ -42,5 +47,6 @@ func TestBoundedConcurrentCache(t *testing.T) {
 			}
 		})
 	}
+
 	wg.Wait()
 }

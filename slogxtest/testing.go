@@ -29,22 +29,28 @@ func GoroutineLeaks() error { return leakcheck.Check() }
 // Set update explicitly from the caller's test flag to replace the fixture.
 func Golden(t testing.TB, name string, got []byte, update bool) {
 	t.Helper()
+
 	root, err := os.Getwd()
 	require.NoError(t, err)
+
 	for {
 		if _, statErr := os.Stat(filepath.Join(root, "go.mod")); statErr == nil {
 			break
 		}
+
 		parent := filepath.Dir(root)
 		require.NotEqual(t, root, parent, "repository root not found")
 		root = parent
 	}
+
 	require.True(t, filepath.IsLocal(name), "golden name must be local")
+
 	file := filepath.Join(root, "testdata", name)
 	if update {
 		require.NoError(t, os.MkdirAll(filepath.Dir(file), goldenDirMode))
 		require.NoError(t, os.WriteFile(file, got, goldenFileMode))
 	}
+
 	expected, err := os.ReadFile(file) // #nosec G304 -- file is the golden path the test itself names under testdata
 	require.NoError(t, err)
 	require.Equal(t, string(expected), string(got))

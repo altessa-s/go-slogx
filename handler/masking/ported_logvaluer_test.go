@@ -50,6 +50,7 @@ func (mapCycleLogValue) LogValue() slog.Value {
 
 func TestHandler_LogValuerMasksResolvedValues(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name string
 		attr slog.Attr
@@ -67,9 +68,12 @@ func TestHandler_LogValuerMasksResolvedValues(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			for _, bound := range []bool{false, true} {
 				var out bytes.Buffer
+
 				h := portedHandler(t, slog.NewJSONHandler(&out, nil), fieldOption("password", fullMask()))
+
 				logger := slog.New(h).WithGroup("request")
 				if bound {
 					logger = logger.With(tc.attr)
@@ -77,7 +81,9 @@ func TestHandler_LogValuerMasksResolvedValues(t *testing.T) {
 				} else {
 					logger.LogAttrs(t.Context(), slog.LevelInfo, "test", tc.attr)
 				}
+
 				require.NotContains(t, out.String(), "secret-value")
+
 				switch tc.name {
 				case "struct", "pointer struct", "map", "slice":
 					require.Contains(t, out.String(), "{}")
@@ -91,6 +97,7 @@ func TestHandler_LogValuerMasksResolvedValues(t *testing.T) {
 
 func TestHandler_LogValuerCyclesBounded(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		name  string
 		value any
@@ -99,7 +106,9 @@ func TestHandler_LogValuerCyclesBounded(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			var out bytes.Buffer
+
 			h := portedHandler(t, slog.NewJSONHandler(&out, nil), fieldOption("password", fullMask()))
 			slog.New(h).InfoContext(t.Context(), "test", "value", tc.value)
 			require.NotEmpty(t, out.String())
@@ -110,7 +119,9 @@ func TestHandler_LogValuerCyclesBounded(t *testing.T) {
 
 func TestHandler_LogValuerNestedPath(t *testing.T) {
 	t.Parallel()
+
 	var out bytes.Buffer
+
 	h := portedHandler(t, slog.NewJSONHandler(&out, nil), fieldOption("request.payload.password", fullMask()), masking.WithNested(true))
 	slog.New(h).WithGroup("request").InfoContext(t.Context(), "test", "payload", secretLogValue{})
 	require.NotContains(t, out.String(), "secret-value")
@@ -124,6 +135,7 @@ func (v *changingLogValue) LogValue() slog.Value {
 	if v.calls == 1 {
 		return slog.StringValue("public")
 	}
+
 	return secretLogValue{}.LogValue()
 }
 
@@ -134,7 +146,9 @@ func (dualLogValue) MarshalText() ([]byte, error) { return []byte("secret-value"
 
 func TestHandler_LogValuerResolvedOnce(t *testing.T) {
 	t.Parallel()
+
 	var out bytes.Buffer
+
 	value := &changingLogValue{}
 	h := portedHandler(t, slog.NewJSONHandler(&out, nil), fieldOption("password", fullMask()))
 	slog.New(h).InfoContext(t.Context(), "test", "value", value)
@@ -145,7 +159,9 @@ func TestHandler_LogValuerResolvedOnce(t *testing.T) {
 
 func TestHandler_LogValuerResolvedBeforeCustomMask(t *testing.T) {
 	t.Parallel()
+
 	var out bytes.Buffer
+
 	h := portedHandler(t, slog.NewJSONHandler(&out, nil), fieldOption("password", func(value string) string {
 		require.Equal(t, "secret-value", value)
 		return "masked"
@@ -156,7 +172,9 @@ func TestHandler_LogValuerResolvedBeforeCustomMask(t *testing.T) {
 
 func TestHandler_LogValuerPrecedesTextMarshaler(t *testing.T) {
 	t.Parallel()
+
 	var out bytes.Buffer
+
 	h := portedHandler(t, slog.NewJSONHandler(&out, nil), fieldOption("password", fullMask()))
 	slog.New(h).InfoContext(t.Context(), "test", "payload", dualLogValue{})
 	require.NotContains(t, out.String(), "secret-value")
@@ -165,9 +183,13 @@ func TestHandler_LogValuerPrecedesTextMarshaler(t *testing.T) {
 
 func TestHandler_PointerInterfaceCycleBounded(t *testing.T) {
 	t.Parallel()
+
 	var value any
+
 	value = &value
+
 	var out bytes.Buffer
+
 	h := portedHandler(t, slog.NewJSONHandler(&out, nil), fieldOption("password", fullMask()))
 	slog.New(h).InfoContext(t.Context(), "test", "value", value)
 	require.Contains(t, out.String(), "masking: max depth exceeded")

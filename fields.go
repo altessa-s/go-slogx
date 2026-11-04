@@ -43,6 +43,7 @@ func (f Fields) Delete(key string) Fields {
 			return slices.Delete(f, i, i+1)
 		}
 	}
+
 	return f
 }
 
@@ -50,6 +51,7 @@ func (f Fields) Delete(key string) Fields {
 // If there are duplicate keys, the first occurrence is kept.
 func (f Fields) Unique() Fields {
 	seen := make(map[string]bool, len(f))
+
 	out := make(Fields, 0, len(f))
 	for _, field := range f {
 		if !seen[field.Key] {
@@ -57,6 +59,7 @@ func (f Fields) Unique() Fields {
 			out = append(out, field)
 		}
 	}
+
 	return out
 }
 
@@ -88,6 +91,7 @@ func (f Fields) Args() []any {
 	for _, field := range f {
 		out = append(out, field.Key, field.Value)
 	}
+
 	return out
 }
 
@@ -97,6 +101,7 @@ func (f Fields) Attrs() []slog.Attr {
 	for _, field := range f {
 		attrs = append(attrs, slog.Any(field.Key, field.Value))
 	}
+
 	return attrs
 }
 
@@ -115,6 +120,7 @@ func FieldsFromContext(ctx context.Context) Fields {
 	if ctx == nil {
 		return nil
 	}
+
 	fw, ok := ctx.Value(fieldsContextKey{}).(*fieldsWrapper)
 	if !ok || fw == nil {
 		return nil
@@ -147,10 +153,12 @@ func AppendField(ctx context.Context, key string, value any) {
 	if ctx == nil {
 		return
 	}
+
 	fw, ok := ctx.Value(fieldsContextKey{}).(*fieldsWrapper)
 	if !ok || fw == nil {
 		return
 	}
+
 	fw.mu.Lock()
 	fw.fields = fw.fields.Append(key, value)
 	fw.mu.Unlock()
@@ -162,10 +170,12 @@ func AppendFields(ctx context.Context, f Fields) {
 	if ctx == nil {
 		return
 	}
+
 	fw, ok := ctx.Value(fieldsContextKey{}).(*fieldsWrapper)
 	if !ok || fw == nil {
 		return
 	}
+
 	fw.mu.Lock()
 	fw.fields = fw.fields.AppendFields(f)
 	fw.mu.Unlock()
@@ -183,37 +193,45 @@ func (f Fields) Grouped() []slog.Attr {
 fieldsLoop:
 	for _, field := range f {
 		key := field.Key
+
 		idx := strings.IndexByte(key, '.')
 		if idx <= 0 {
 			// keep first value if duplicate key appears
 			if _, exists := root[key]; !exists {
 				root[key] = field.Value
 			}
+
 			continue
 		}
 
 		// Walk the dot-separated segments in place (no strings.Split allocation).
 		current := root
+
 		rest := key
 		for {
 			i := strings.IndexByte(rest, '.')
 			if i < 0 {
 				break
 			}
+
 			part := rest[:i]
 			rest = rest[i+1:]
+
 			next, ok := current[part]
 			if !ok {
 				child := make(fieldGroup)
 				current[part] = child
 				current = child
+
 				continue
 			}
+
 			child, ok := next.(fieldGroup)
 			if !ok {
 				// The first value owns the path, including scalar/group conflicts.
 				continue fieldsLoop
 			}
+
 			current = child
 		}
 
@@ -234,7 +252,9 @@ func mapToAttrs(data fieldGroup) []slog.Attr {
 			attrs = append(attrs, slog.GroupAttrs(k, mapToAttrs(child)...))
 			continue
 		}
+
 		attrs = append(attrs, slog.Any(k, data[k]))
 	}
+
 	return attrs
 }

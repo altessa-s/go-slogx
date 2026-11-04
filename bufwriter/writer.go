@@ -46,9 +46,11 @@ func New(sink io.Writer, opts ...Option) (*Writer, error) {
 	if sink == nil || o.size <= 0 {
 		return nil, errors.New("bufwriter: writer and positive size required")
 	}
+
 	w := &Writer{sink: sink, writeMu: make(chan struct{}, 1), queue: make(chan entry, o.size),
 		done: make(chan struct{}), stop: make(chan struct{}), onError: o.onError, pending: make(map[chan struct{}]struct{})}
 	go w.run()
+
 	return w, nil
 }
 func (w *Writer) run() {
@@ -57,10 +59,12 @@ func (w *Writer) run() {
 		w.mu.Lock()
 		pending := w.pendingWrites()
 		w.mu.Unlock()
+
 		for _, done := range pending {
 			<-done
 		}
 	}()
+
 	for {
 		select {
 		case e := <-w.queue:
@@ -95,19 +99,23 @@ func (w *Writer) write(p []byte) (n int, err error) {
 				err = ErrPanicked
 			}
 		}()
+
 		n, err = w.sink.Write(p)
 		if n != len(p) && err == nil {
 			err = io.ErrShortWrite
 		}
 	}()
+
 	if err != nil {
 		w.errMu.Lock()
 		w.err = errors.Join(w.err, err)
 		w.errMu.Unlock()
+
 		if w.onError != nil {
 			func() { defer func() { _ = recover() }(); w.onError(err) }()
 		}
 	}
+
 	return n, err
 }
 
@@ -116,11 +124,14 @@ func (w *Writer) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	if w.closed {
 		w.mu.Unlock()
+
 		if w.onError != nil {
 			func() { defer func() { _ = recover() }(); w.onError(ErrClosed) }()
 		}
+
 		return w.write(p)
 	}
+
 	owned := append([]byte(nil), p...)
 	select {
 	case w.queue <- entry{bytes: owned}:
@@ -135,6 +146,7 @@ func (w *Writer) Write(p []byte) (int, error) {
 		delete(w.pending, done)
 		close(done)
 		w.mu.Unlock()
+
 		return n, err
 	}
 }
@@ -143,13 +155,16 @@ func (w *Writer) pendingWrites() []chan struct{} {
 	for done := range w.pending {
 		pending = append(pending, done)
 	}
+
 	return pending
 }
 func (w *Writer) errors() error {
 	w.errMu.Lock()
 	defer w.errMu.Unlock()
+
 	err := w.err
 	w.err = nil
+
 	return err
 }
 
@@ -159,10 +174,13 @@ func (w *Writer) errors() error {
 // After Close finishes it returns immediately, including after write panics.
 func (w *Writer) Flush(ctx context.Context) error {
 	barrier := make(chan struct{})
+
 	w.mu.Lock()
+
 	pending := w.pendingWrites()
 	if w.closed {
 		w.mu.Unlock()
+
 		select {
 		case <-w.done:
 			return w.errors()
@@ -171,6 +189,7 @@ func (w *Writer) Flush(ctx context.Context) error {
 		}
 	}
 	w.mu.Unlock()
+
 	select {
 	case w.queue <- entry{barrier: barrier}:
 	case <-ctx.Done():
@@ -188,6 +207,7 @@ func (w *Writer) Flush(ctx context.Context) error {
 				return ctx.Err()
 			}
 		}
+
 		return w.errors()
 	case <-w.done:
 		return w.errors()
@@ -205,6 +225,7 @@ func (w *Writer) Close(ctx context.Context) error {
 		close(w.stop)
 	}
 	w.mu.Unlock()
+
 	select {
 	case <-w.done:
 		return w.errors()

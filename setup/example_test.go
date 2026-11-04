@@ -14,13 +14,17 @@ import (
 
 func ExampleNew() {
 	var output bytes.Buffer
+
 	l, err := setup.New(&output, setup.WithFormat(setup.JSON))
 	if err != nil {
 		panic(err)
 	}
+
 	l.Logger().Info("ready")
+
 	if err := l.Shutdown(context.Background()); err != nil {
 		panic(err)
 	}
+
 	fmt.Println(output.Len() > 0) // Output: true
 }

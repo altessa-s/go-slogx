@@ -15,11 +15,14 @@ import (
 
 func TestConformance(t *testing.T) {
 	t.Parallel()
+
 	var recorder *slogxtest.Recorder
+
 	slogxtest.Conformance(t, func(t *testing.T) slog.Handler { recorder = slogxtest.NewRecorder(); return mustNew(t, recorder) }, func(t *testing.T) map[string]any {
 		records, err := recorder.Records()
 		require.NoError(t, err)
 		require.Len(t, records, 1)
+
 		return records[0]
 	})
 }

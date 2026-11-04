@@ -19,6 +19,7 @@ func (p Params) Int(key string, fallback int) (int, error) {
 	if !ok {
 		return fallback, nil
 	}
+
 	switch n := v.(type) {
 	case int:
 		return n, nil
@@ -39,6 +40,7 @@ func (p Params) Int(key string, fallback int) (int, error) {
 			return x, nil
 		}
 	}
+
 	return 0, ErrParams
 }
 
@@ -48,10 +50,12 @@ func (p Params) String(key, fallback string) (string, error) {
 	if !ok {
 		return fallback, nil
 	}
+
 	s, ok := v.(string)
 	if !ok {
 		return "", ErrParams
 	}
+
 	return s, nil
 }
 
@@ -61,6 +65,7 @@ func (p Params) Bool(key string, fallback bool) (bool, error) {
 	if !ok {
 		return fallback, nil
 	}
+
 	switch b := v.(type) {
 	case bool:
 		return b, nil
@@ -69,5 +74,6 @@ func (p Params) Bool(key string, fallback bool) (bool, error) {
 			return x, nil
 		}
 	}
+
 	return false, ErrParams
 }

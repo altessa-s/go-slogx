@@ -15,13 +15,16 @@ import (
 
 func mustNew(t testing.TB, next slog.Handler, opts ...prefixed.Option) *prefixed.Handler {
 	t.Helper()
+
 	result, err := prefixed.New(next, opts...)
 	require.NoError(t, err)
+
 	return result
 }
 
 func TestRejectNilHandler(t *testing.T) {
 	t.Parallel()
+
 	_, err := prefixed.New(nil)
 	require.Error(t, err)
 }

@@ -33,11 +33,14 @@ func New(w io.Writer, opts ...Option) (*Handler, error) {
 	if w == nil {
 		return nil, errors.New("console: nil writer")
 	}
+
 	o := newOptions(opts...)
 	if o.level == nil {
 		o.level = slog.LevelInfo
 	}
+
 	o.keyStyles = maps.Clone(o.keyStyles)
+
 	return &Handler{writer: w, mu: new(sync.Mutex), opts: o}, nil
 }
 
@@ -50,6 +53,7 @@ func (h *Handler) Enabled(_ context.Context, level slog.Level) bool {
 // Handle formats every value on the calling goroutine before writing bytes.
 func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	buffer := buffers.Get().(*[]byte) //nolint:errcheck // the pool stores only byte slice pointers
+
 	parts := (*buffer)[:0]
 	defer func() {
 		if cap(parts) <= maxPooledCapacity {
@@ -57,33 +61,42 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 			buffers.Put(buffer)
 		}
 	}()
+
 	if h.opts.format == FormatText {
 		parts = h.appendTextRecord(parts, r)
 	} else {
 		if !r.Time.IsZero() {
 			parts = h.appendAttr(parts, nil, slog.Time(slog.TimeKey, r.Time))
 		}
+
 		parts = h.appendAttr(parts, nil, slog.Any(slog.LevelKey, r.Level))
 		if h.opts.addSource && r.PC != 0 {
 			frame, _ := runtime.CallersFrames([]uintptr{r.PC}).Next()
 			parts = h.appendAttr(parts, nil, slog.Any(slog.SourceKey, &slog.Source{Function: frame.Function, File: frame.File, Line: frame.Line}))
 		}
+
 		parts = h.appendAttr(parts, nil, slog.String(slog.MessageKey, r.Message))
 		if len(h.captured) > 0 {
 			if len(parts) > 0 {
 				parts = append(parts, ' ')
 			}
+
 			parts = append(parts, h.captured...)
 		}
+
 		r.Attrs(func(a slog.Attr) bool { parts = h.appendAttr(parts, h.groups, a); return true })
 	}
+
 	parts = append(parts, '\n')
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
 	n, err := h.writer.Write(parts)
 	if err == nil && n != len(parts) {
 		return io.ErrShortWrite
 	}
+
 	return err
 }
 
@@ -95,43 +108,56 @@ func (h *Handler) appendTextRecord(parts []byte, r slog.Record) []byte {
 			if a.Value.Kind() == slog.KindTime {
 				value = a.Value.Time().Format(h.opts.timeFormat)
 			}
+
 			parts = append(parts, value...)
 			parts = append(parts, ' ')
 		}
 	}
+
 	levelAttr := h.prepareBuiltin(slog.Any(slog.LevelKey, r.Level))
+
 	level := ""
 	if !levelAttr.Equal(slog.Attr{}) {
 		level = levelAttr.Value.String()
 	}
+
 	levelStyle := Cyan
 	if configured := h.opts.keyStyles[levelAttr.Key]; configured != Plain {
 		levelStyle = configured
 	}
+
 	if h.opts.color && isColor(levelStyle) {
 		parts = appendStyle(parts, levelStyle)
 	}
+
 	parts = append(parts, level...)
 	for i := len(level); i < textLevelWidth; i++ {
 		parts = append(parts, ' ')
 	}
+
 	if h.opts.color && isColor(levelStyle) {
 		parts = append(parts, "\x1b[0m"...)
 	}
+
 	parts = append(parts, ' ')
+
 	message := h.prepareBuiltin(slog.String(slog.MessageKey, r.Message))
 	if !message.Equal(slog.Attr{}) {
 		parts = appendTextMessage(parts, message.Value.String())
 	}
+
 	if h.opts.addSource && r.PC != 0 {
 		frame, _ := runtime.CallersFrames([]uintptr{r.PC}).Next()
 		parts = h.appendTextAttr(parts, nil, slog.Any(slog.SourceKey, &slog.Source{Function: frame.Function, File: frame.File, Line: frame.Line}))
 	}
+
 	if len(h.captured) > 0 {
 		parts = append(parts, ' ')
 		parts = append(parts, h.captured...)
 	}
+
 	r.Attrs(func(a slog.Attr) bool { parts = h.appendTextAttr(parts, h.groups, a); return true })
+
 	return parts
 }
 
@@ -141,9 +167,11 @@ func (h *Handler) prepareBuiltin(a slog.Attr) slog.Attr {
 		a = h.opts.replaceAttr(nil, a)
 		a.Value = a.Value.Resolve()
 	}
+
 	if a.Equal(slog.Attr{}) {
 		return a
 	}
+
 	return a
 }
 
@@ -156,6 +184,7 @@ func isColor(style Style) bool {
 func appendStyle(parts []byte, style Style) []byte {
 	parts = append(parts, "\x1b["...)
 	parts = strconv.AppendInt(parts, int64(style), 10)
+
 	return append(parts, 'm')
 }
 
@@ -164,6 +193,7 @@ func appendTextMessage(parts []byte, message string) []byte {
 	// backslashes cannot break the one-record-per-line contract.
 	start := len(parts)
 	parts = strconv.AppendQuote(parts, message)
+
 	return append(parts[:start], parts[start+1:len(parts)-1]...)
 }
 
@@ -173,21 +203,27 @@ func (h *Handler) appendTextAttr(parts []byte, groups []string, a slog.Attr) []b
 		a = h.opts.replaceAttr(slices.Clone(groups), a)
 		a.Value = a.Value.Resolve()
 	}
+
 	if a.Equal(slog.Attr{}) {
 		return parts
 	}
+
 	if a.Value.Kind() == slog.KindGroup {
 		if a.Key != "" {
 			groups = slices.Concat(groups, []string{a.Key})
 		}
+
 		for _, child := range a.Value.Group() {
 			parts = h.appendTextAttr(parts, groups, child)
 		}
+
 		return parts
 	}
+
 	if len(parts) > 0 {
 		parts = append(parts, ' ')
 	}
+
 	style := Plain
 	if h.opts.color {
 		style = h.opts.keyStyles[a.Key]
@@ -200,24 +236,31 @@ func (h *Handler) appendTextAttr(parts []byte, groups []string, a slog.Attr) []b
 			}
 		}
 	}
+
 	colored := isColor(style)
 	if colored {
 		parts = appendStyle(parts, style)
 	}
+
 	for i, group := range groups {
 		if i > 0 {
 			parts = append(parts, '.')
 		}
+
 		parts = appendTextKey(parts, group)
 	}
+
 	if len(groups) > 0 {
 		parts = append(parts, '.')
 	}
+
 	parts = appendTextKey(parts, a.Key)
 	if colored {
 		parts = append(parts, "\x1b[0m"...)
 	}
+
 	parts = append(parts, '=')
+
 	value := a.Value.String()
 	if a.Value.Kind() == slog.KindTime {
 		value = a.Value.Time().Format(h.opts.timeFormat)
@@ -226,11 +269,13 @@ func (h *Handler) appendTextAttr(parts []byte, groups []string, a slog.Attr) []b
 			value = source.File + ":" + strconv.Itoa(source.Line)
 		}
 	}
+
 	if needsTextQuote(value) {
 		parts = strconv.AppendQuote(parts, value)
 	} else {
 		parts = append(parts, value...)
 	}
+
 	return parts
 }
 
@@ -241,6 +286,7 @@ func appendTextKey(parts []byte, key string) []byte {
 			return strconv.AppendQuote(parts, key)
 		}
 	}
+
 	return append(parts, key...)
 }
 
@@ -250,6 +296,7 @@ func needsTextQuote(value string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 func (h *Handler) appendAttr(parts []byte, groups []string, a slog.Attr) []byte {
@@ -258,22 +305,27 @@ func (h *Handler) appendAttr(parts []byte, groups []string, a slog.Attr) []byte 
 		a = h.opts.replaceAttr(slices.Clone(groups), a)
 		a.Value = a.Value.Resolve()
 	}
+
 	if a.Equal(slog.Attr{}) {
 		return parts
 	}
+
 	if a.Value.Kind() == slog.KindGroup {
 		if a.Key != "" {
 			groups = slices.Concat(groups, []string{a.Key})
 		}
+
 		for _, child := range a.Value.Group() {
 			parts = h.appendAttr(parts, groups, child)
 		}
+
 		return parts
 	}
 
 	if len(parts) > 0 {
 		parts = append(parts, ' ')
 	}
+
 	style := Plain
 	if h.opts.color {
 		style = h.opts.keyStyles[a.Key]
@@ -288,6 +340,7 @@ func (h *Handler) appendAttr(parts []byte, groups []string, a slog.Attr) []byte 
 			}
 		}
 	}
+
 	colored := style == Red || style == Green || style == Yellow || style == Blue || style == Cyan
 	if colored {
 		parts = append(parts, "\x1b["...)
@@ -302,10 +355,12 @@ func (h *Handler) appendAttr(parts []byte, groups []string, a slog.Attr) []byte 
 		parts = append(parts[:start], parts[start+1:len(parts)-1]...)
 		parts = append(parts, '.')
 	}
+
 	start := len(parts)
 	parts = strconv.AppendQuote(parts, a.Key)
 	parts = append(parts[:start], parts[start+1:]...)
 	parts = append(parts, '=')
+
 	value := a.Value.String()
 	if a.Value.Kind() == slog.KindTime {
 		value = a.Value.Time().Format(h.opts.timeFormat)
@@ -314,10 +369,12 @@ func (h *Handler) appendAttr(parts []byte, groups []string, a slog.Attr) []byte 
 			value = source.File + ":" + strconv.Itoa(source.Line)
 		}
 	}
+
 	parts = strconv.AppendQuote(parts, value)
 	if colored {
 		parts = append(parts, "\x1b[0m"...)
 	}
+
 	return parts
 }
 
@@ -328,6 +385,7 @@ var buffers = sync.Pool{New: func() any { b := make([]byte, 0, 1024); return &b 
 // WithAttrs formats captured attributes immediately, as slog handlers require.
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	c := *h
+
 	c.captured = slices.Clone(h.captured)
 	for _, a := range attrs {
 		if h.opts.format == FormatText {
@@ -336,6 +394,7 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 			c.captured = h.appendAttr(c.captured, h.groups, a)
 		}
 	}
+
 	return &c
 }
 
@@ -344,7 +403,9 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
+
 	c := *h
 	c.groups = slices.Concat(h.groups, []string{name})
+
 	return &c
 }

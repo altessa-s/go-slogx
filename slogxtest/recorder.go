@@ -21,6 +21,7 @@ type recording struct {
 func (r *recording) Write(p []byte) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	return r.bytes.Write(p)
 }
 
@@ -57,6 +58,7 @@ func (r *Recorder) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return r
 	}
+
 	return &Recorder{state: r.state, handler: r.handler.WithGroup(name)}
 }
 
@@ -65,15 +67,20 @@ func (r *Recorder) Records() ([]map[string]any, error) {
 	r.state.mu.Lock()
 	data := bytes.Clone(r.state.bytes.Bytes())
 	r.state.mu.Unlock()
+
 	decoder := json.NewDecoder(bytes.NewReader(data))
+
 	var out []map[string]any
+
 	for decoder.More() {
 		var record map[string]any
 		if err := decoder.Decode(&record); err != nil {
 			return nil, err
 		}
+
 		out = append(out, record)
 	}
+
 	return out, nil
 }
 

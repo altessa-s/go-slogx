@@ -21,9 +21,12 @@ func BenchmarkJSONChain(b *testing.B) {
 				if err != nil {
 					b.Fatal(err)
 				}
+
 				log = l.Logger()
 			}
+
 			b.ReportAllocs()
+
 			for b.Loop() {
 				log.Info("record", "key", "value")
 			}
@@ -42,8 +45,11 @@ func BenchmarkL9TextBufferedChain(b *testing.B) {
 			b.Fatal(err)
 		}
 	}()
+
 	log := l.Logger().With("subsystem", "worker")
+
 	b.ReportAllocs()
+
 	for b.Loop() {
 		log.Info("completed", "count", 42, "payload", map[string]string{"status": "ok", "token": "private"})
 	}

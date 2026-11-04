@@ -15,5 +15,6 @@ func ExamplePartial() {
 	if err != nil {
 		panic(err)
 	}
+
 	fmt.Println(f("секрет")) // Output: с****т
 }

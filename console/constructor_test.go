@@ -15,7 +15,9 @@ import (
 
 func mustNew(t testing.TB, writer io.Writer, opts ...console.Option) *console.Handler {
 	t.Helper()
+
 	result, err := console.New(writer, opts...)
 	require.NoError(t, err)
+
 	return result
 }

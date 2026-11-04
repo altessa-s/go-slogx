@@ -21,11 +21,13 @@ func logJSON(t *testing.T, opts []masking.Option, attrs ...any) map[string]any {
 	t.Helper()
 
 	var buf bytes.Buffer
+
 	logger := slog.New(portedHandler(t, slog.NewJSONHandler(&buf, nil), opts...))
 	logger.Info("test", attrs...)
 
 	var record map[string]any
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &record))
+
 	return record
 }
 
@@ -153,6 +155,7 @@ func TestWithDefaults_CredentialsRevealNothing(t *testing.T) {
 			if opts == nil {
 				opts = []masking.Option{masking.WithDefaults(true)}
 			}
+
 			record := logJSON(t, opts, tc.key, tc.value)
 			require.Equal(t, full(tc.value), record[tc.key])
 		})
@@ -166,6 +169,7 @@ func TestWithDefaults_PatternBoundaries(t *testing.T) {
 	t.Parallel()
 
 	const value = "value-123"
+
 	masked := fullMask()(value)
 	tests := []struct {
 		key  string
@@ -220,6 +224,7 @@ func TestCaseFoldCollision_LastRegistrationWins(t *testing.T) {
 	t.Parallel()
 
 	const value = "someone@example.com"
+
 	fixed := fixedMask("[X]")
 
 	for range 50 {
@@ -286,6 +291,7 @@ func TestNew_ValidOptionsMasks(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
+
 	h, err := masking.New(slog.NewJSONHandler(&buf, nil),
 		patternOption(`(?i)token`, fixedMask("[T]")),
 	)

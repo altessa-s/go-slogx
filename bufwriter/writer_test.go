@@ -25,10 +25,13 @@ import (
 
 func TestMain(m *testing.M) {
 	code := m.Run()
+
 	if err := leakcheck.Check(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+
 		code = 1
 	}
+
 	os.Exit(code)
 }
 
@@ -39,8 +42,10 @@ func TestDrainCopiesAndClosedFlush(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		var sink bytes.Buffer
+
 		w, err := bufwriter.New(&sink)
 		require.NoError(t, err)
+
 		data := []byte("original")
 		_, err = w.Write(data)
 		require.NoError(t, err)
@@ -58,8 +63,11 @@ func TestDrainCopiesAndClosedFlush(t *testing.T) {
 func TestPanicRecoveryAndWriteErrors(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-		var calls, reported atomic.Int32
-		var observed error
+		var (
+			calls, reported atomic.Int32
+			observed        error
+		)
+
 		sink := writerFunc(func(p []byte) (int, error) {
 			switch calls.Add(1) {
 			case 1:
@@ -74,10 +82,12 @@ func TestPanicRecoveryAndWriteErrors(t *testing.T) {
 		})
 		w, err := bufwriter.New(sink, bufwriter.WithOnError(func(err error) { observed = errors.Join(observed, err); reported.Add(1); panic("callback") }))
 		require.NoError(t, err)
+
 		for range 4 {
 			_, err = w.Write([]byte("line"))
 			require.NoError(t, err)
 		}
+
 		err = w.Flush(t.Context())
 		require.ErrorIs(t, err, bufwriter.ErrPanicked)
 		require.ErrorIs(t, observed, io.ErrClosedPipe)
@@ -92,12 +102,15 @@ func TestOverflowAndDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
 		entered := make(chan struct{})
+
 		var count atomic.Int32
+
 		sink := writerFunc(func(p []byte) (int, error) {
 			if count.Add(1) == 1 {
 				close(entered)
 				<-release
 			}
+
 			return len(p), nil
 		})
 		w, err := bufwriter.New(sink, bufwriter.WithSize(1))
@@ -105,12 +118,17 @@ func TestOverflowAndDeadline(t *testing.T) {
 		_, err = w.Write([]byte("first"))
 		require.NoError(t, err)
 		<-entered
+
 		_, err = w.Write([]byte("queued"))
 		require.NoError(t, err)
+
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
+
 		require.ErrorIs(t, w.Flush(ctx), context.DeadlineExceeded)
+
 		completed := make(chan struct{})
+
 		go func() { _, _ = w.Write([]byte("overflow")); close(completed) }()
 
 		close(release)
@@ -129,6 +147,7 @@ func TestCloseTimeoutStillDrains(t *testing.T) {
 		_, err = w.Write([]byte("x"))
 		require.NoError(t, err)
 		<-entered
+
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		require.ErrorIs(t, w.Close(ctx), context.Canceled)
@@ -136,6 +155,7 @@ func TestCloseTimeoutStillDrains(t *testing.T) {
 		close(release)
 		require.NoError(t, w.Close(t.Context()))
 	})
+
 	_, err := bufwriter.New(nil)
 	require.Error(t, err)
 	_, err = bufwriter.New(io.Discard, bufwriter.WithSize(0))
@@ -153,18 +173,26 @@ func TestConcurrentFlushDoesNotBlockCloseDeadline(t *testing.T) {
 				<-release
 			default:
 			}
+
 			return len(p), nil
 		}), bufwriter.WithSize(1))
 		require.NoError(t, err)
+
 		written := make(chan error, 1)
+
 		go func() { _, err := w.Write([]byte("first")); written <- err }()
+
 		<-entered
 		require.NoError(t, <-written)
+
 		_, err = w.Write([]byte("queued"))
 		require.NoError(t, err)
+
 		flushed := make(chan error, 1)
 		go func() { flushed <- w.Flush(t.Context()) }()
+
 		synctest.Wait()
+
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		require.ErrorIs(t, w.Close(ctx), context.Canceled)

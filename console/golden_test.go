@@ -18,32 +18,40 @@ import (
 
 func TestGolden(t *testing.T) {
 	t.Parallel()
+
 	for _, color := range []bool{false, true} {
 		var b bytes.Buffer
+
 		h := mustNew(t, &b, console.WithColor(color))
 		record := slog.NewRecord(time.Time{}, slog.LevelInfo, "ready", 0)
 		record.AddAttrs(slog.String("key", "value"))
 		require.NoError(t, h.Handle(t.Context(), record))
+
 		name := "console/plain.golden"
 		if color {
 			name = "console/color.golden"
 		}
+
 		slogxtest.Golden(t, name, b.Bytes(), false)
 	}
 }
 
 func TestTextGolden(t *testing.T) {
 	t.Parallel()
+
 	for _, color := range []bool{false, true} {
 		var b bytes.Buffer
+
 		h := mustNew(t, &b, console.WithFormat(console.FormatText), console.WithColor(color))
 		record := slog.NewRecord(time.Time{}, slog.LevelInfo, "ready", 0)
 		record.AddAttrs(slog.String("key", "value"))
 		require.NoError(t, h.Handle(t.Context(), record))
+
 		name := "console/text-plain.golden"
 		if color {
 			name = "console/text-color.golden"
 		}
+
 		slogxtest.Golden(t, name, b.Bytes(), false)
 	}
 }

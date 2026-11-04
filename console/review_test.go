@@ -18,11 +18,15 @@ import (
 
 func TestL1SourceFileLine(t *testing.T) {
 	t.Parallel()
+
 	var out bytes.Buffer
+
 	h, err := console.New(&out, console.WithAddSource(true))
 	require.NoError(t, err)
+
 	log := slog.New(h)
 	_, file, line, _ := runtime.Caller(0)
+
 	log.Info("source")
-	require.Contains(t, out.String(), fmt.Sprintf("%s:%d", file, line+1))
+	require.Contains(t, out.String(), fmt.Sprintf("%s:%d", file, line+2))
 }

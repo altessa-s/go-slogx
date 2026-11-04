@@ -26,6 +26,7 @@ func NewBase(inner slog.Handler) Base {
 	if inner == nil {
 		panic("base: inner handler cannot be nil")
 	}
+
 	return Base{
 		inner:  inner,
 		groups: make([]string, 0),
@@ -56,7 +57,9 @@ func (b *Base) GroupPath(key string) string {
 		sb.WriteString(g)
 		sb.WriteByte('.')
 	}
+
 	sb.WriteString(key)
+
 	return sb.String()
 }
 

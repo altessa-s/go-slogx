@@ -13,7 +13,9 @@ import (
 func BenchmarkHandler(b *testing.B) {
 	h := mustNew(b, slog.NewJSONHandler(io.Discard, nil))
 	log := slog.New(h)
+
 	b.ReportAllocs()
+
 	for b.Loop() {
 		log.Info("record", "public", "value")
 	}
@@ -25,13 +27,16 @@ func BenchmarkEnabled(b *testing.B) {
 		if captured {
 			name = "captured"
 		}
+
 		b.Run(name, func(b *testing.B) {
 			var handler slog.Handler = mustNew(b, slog.NewJSONHandler(io.Discard, nil))
 			if captured {
 				handler = handler.WithAttrs([]slog.Attr{slog.String("subsystem", "worker")})
 			}
+
 			ctx := b.Context()
 			b.ReportAllocs()
+
 			for b.Loop() {
 				_ = handler.Enabled(ctx, slog.LevelInfo)
 			}

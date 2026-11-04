@@ -34,7 +34,9 @@ func LoggerFromContext(ctx context.Context) (*slog.Logger, bool) {
 	if ctx == nil {
 		return nil, false
 	}
+
 	l, ok := ctx.Value(ctxSlog{}).(*slog.Logger)
+
 	return l, ok && l != nil
 }
 
@@ -43,6 +45,7 @@ func FromContext(ctx context.Context) *slog.Logger {
 	if l, ok := LoggerFromContext(ctx); ok {
 		return l
 	}
+
 	return slog.Default()
 }
 
@@ -51,6 +54,7 @@ func ContextWithLoggerIfAbsent(ctx context.Context, l *slog.Logger) context.Cont
 	if _, ok := LoggerFromContext(ctx); ok {
 		return ctx
 	}
+
 	return ContextWithLogger(ctx, l)
 }
 
@@ -65,10 +69,12 @@ func BuildLogger(ctx context.Context, base *slog.Logger) *slog.Logger {
 	if base == nil {
 		base = slog.Default()
 	}
+
 	fields := FieldsFromContext(ctx)
 	if len(fields) == 0 {
 		return base
 	}
+
 	return base.With(fields.Args()...)
 }
 

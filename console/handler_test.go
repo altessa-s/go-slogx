@@ -25,14 +25,18 @@ import (
 
 func parse(t *testing.T, data string) map[string]any {
 	t.Helper()
+
 	out := map[string]any{}
+
 	re := regexp.MustCompile(`("(?:\\.|[^"\\])*")=("(?:\\.|[^"\\])*")`)
 	for _, m := range re.FindAllStringSubmatch(data, -1) {
 		key, err := strconv.Unquote(m[1])
 		require.NoError(t, err)
 		value, err := strconv.Unquote(m[2])
 		require.NoError(t, err)
+
 		parts := strings.Split(key, ".")
+
 		target := out
 		for _, part := range parts[:len(parts)-1] {
 			child, ok := target[part].(map[string]any)
@@ -40,15 +44,20 @@ func parse(t *testing.T, data string) map[string]any {
 				child = map[string]any{}
 				target[part] = child
 			}
+
 			target = child
 		}
+
 		target[parts[len(parts)-1]] = value
 	}
+
 	return out
 }
 func TestConformance(t *testing.T) {
 	t.Parallel()
+
 	var buffer bytes.Buffer
+
 	slogxtest.Conformance(t, func(t *testing.T) slog.Handler { buffer.Reset(); return mustNew(t, &buffer) }, func(t *testing.T) map[string]any { return parse(t, buffer.String()) })
 }
 
@@ -57,17 +66,24 @@ type value struct{ calls *int }
 func (v value) LogValue() slog.Value { *v.calls++; return slog.StringValue("resolved") }
 func TestDynamicLevelReplaceAttrAndStyles(t *testing.T) {
 	t.Parallel()
+
 	var colored, plain bytes.Buffer
+
 	level := new(slog.LevelVar)
 	level.Set(slog.LevelWarn)
+
 	calls := 0
+
 	var keys []string
+
 	h := mustNew(t, &colored, console.WithColor(true), console.WithLevel(level), console.WithTimeFormat("2006"), console.WithAddSource(true), console.WithKeyStyles(map[string]console.Style{"public": console.Green}), console.WithReplaceAttr(func(groups []string, a slog.Attr) slog.Attr {
 		keys = append(keys, strings.Join(groups, ".")+"/"+a.Key)
 		require.NotEqual(t, slog.KindLogValuer, a.Value.Kind())
+
 		if a.Key == "drop" {
 			return slog.Attr{}
 		}
+
 		return a
 	}))
 	require.False(t, h.Enabled(t.Context(), slog.LevelInfo))
@@ -89,6 +105,7 @@ func TestDynamicLevelReplaceAttrAndStyles(t *testing.T) {
 	require.NotContains(t, plain.String(), "\x1b")
 	level.Set(slogx.LevelOff)
 	require.False(t, h.Enabled(t.Context(), slog.LevelError))
+
 	_, err := console.New(nil)
 	require.Error(t, err)
 }
@@ -104,11 +121,14 @@ func TestWriteErrors(t *testing.T) {
 
 func TestTextFormat(t *testing.T) {
 	t.Parallel()
+
 	var b bytes.Buffer
+
 	h := mustNew(t, &b, console.WithFormat(console.FormatText), console.WithTimeFormat("2006"), console.WithReplaceAttr(func(groups []string, a slog.Attr) slog.Attr {
 		if a.Key == "secret" {
 			return slog.String(a.Key, "[redacted]")
 		}
+
 		return a
 	}))
 	record := slog.NewRecord(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), slog.LevelWarn, "ready now", 0)
@@ -117,6 +137,7 @@ func TestTextFormat(t *testing.T) {
 	require.Equal(t, "2026 WARN  ready now group.plain=word group.spaced=\"two words\" secret=[redacted]\n", b.String())
 
 	b.Reset()
+
 	noTime := slog.NewRecord(time.Time{}, slog.LevelInfo, "ready", 0)
 	require.NoError(t, h.Handle(t.Context(), noTime))
 	require.Equal(t, "INFO  ready\n", b.String())
@@ -140,13 +161,16 @@ func FuzzTextValueQuoting(f *testing.F) {
 	f.Add("quote\"and=control\n")
 	f.Fuzz(func(t *testing.T, value string) {
 		var b bytes.Buffer
+
 		h := mustNew(t, &b, console.WithFormat(console.FormatText))
 		record := slog.NewRecord(time.Time{}, slog.LevelInfo, "message", 0)
 		record.AddAttrs(slog.String("key", value))
 		require.NoError(t, h.Handle(t.Context(), record))
+
 		out := b.String()
 		require.Equal(t, 1, strings.Count(out, "\n"))
 		require.NotContains(t, out, "\r")
+
 		field := strings.TrimSuffix(strings.TrimPrefix(out, "INFO  message "), "\n")
 		if strings.ContainsAny(value, " \"=") || strings.IndexFunc(value, unicode.IsControl) >= 0 {
 			require.True(t, strings.HasPrefix(field, `key="`))

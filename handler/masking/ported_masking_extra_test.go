@@ -17,7 +17,9 @@ import (
 
 func TestNewHandler_WithDefaultMask(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
+
 	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 
 	customMask := func(value string) string { return "REDACTED" }
@@ -34,7 +36,9 @@ func TestNewHandler_WithDefaultMask(t *testing.T) {
 
 func TestNewHandler_WithMaskNestedFields(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
+
 	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 
 	h := portedHandler(t, inner,
@@ -52,7 +56,9 @@ func TestNewHandler_WithMaskNestedFields(t *testing.T) {
 
 func TestNewHandler_WithCaseSensitive(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
+
 	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 
 	h := portedHandler(t, inner,
@@ -68,7 +74,9 @@ func TestNewHandler_WithCaseSensitive(t *testing.T) {
 
 func TestHandler_WithAttrs_Masking(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
+
 	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 
 	h := portedHandler(t, inner, fieldOption("token", nil))
@@ -82,7 +90,9 @@ func TestHandler_WithAttrs_Masking(t *testing.T) {
 
 func TestNewHandler_WithDefaults_Patterns(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
+
 	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 
 	h := portedHandler(t, inner, masking.WithDefaults(true))
@@ -115,11 +125,13 @@ func TestHandler_DepthLimitDoesNotLeak(t *testing.T) {
 	cyclic.Inner = cyclic
 
 	var sb strings.Builder
+
 	inner := slog.NewTextHandler(&sb, &slog.HandlerOptions{
 		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.TimeKey {
 				return slog.Attr{}
 			}
+
 			return a
 		},
 	})
@@ -194,6 +206,7 @@ func TestHandler_KeyResolution(t *testing.T) {
 			t.Parallel()
 
 			var buf bytes.Buffer
+
 			logger := slog.New(portedHandler(t, slog.NewTextHandler(&buf, nil), tc.opts...))
 			logger.LogAttrs(t.Context(), slog.LevelInfo, "msg", tc.attr)
 
@@ -201,6 +214,7 @@ func TestHandler_KeyResolution(t *testing.T) {
 			for _, s := range tc.want {
 				require.Contains(t, out, s)
 			}
+
 			for _, s := range tc.deny {
 				require.NotContains(t, out, s)
 			}
