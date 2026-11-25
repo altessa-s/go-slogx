@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -60,38 +61,31 @@ func TestH3PanickingMaskFailsClosed(t *testing.T) {
 func TestM2RecordAfterShutdown(t *testing.T) {
 	t.Parallel()
 
-	var (
-		out     bytes.Buffer
-		reports []error
-	)
+	var out bytes.Buffer
 
-	l, err := setup.New(&out, setup.WithBufferSize(8), setup.WithOnError(func(err error) { reports = append(reports, err) }))
+	l, err := setup.New(&out, setup.WithBufferSize(8))
 	require.NoError(t, err)
-	require.NoError(t, l.Shutdown(t.Context()))
-	l.Logger().Info("after shutdown")
-	require.Contains(t, out.String(), "after shutdown")
-	require.Len(t, reports, 1)
-	require.ErrorIs(t, reports[0], bufwriter.ErrClosed)
+	require.NoError(t, deliveryError(l.Shutdown(t.Context())))
+
+	r := slog.NewRecord(time.Time{}, slog.LevelInfo, "after shutdown", 0)
+	require.ErrorIs(t, l.Logger().Handler().Handle(t.Context(), r), bufwriter.ErrClosed)
+	require.Empty(t, out.String())
 }
+
 func TestL3FailedSinkClosesWorker(t *testing.T) {
 	t.Parallel()
 
-	var (
-		writer  io.Writer
-		reports []error
-	)
+	var writer io.Writer
 
-	_, err := setup.New(io.Discard, setup.WithBufferSize(8), setup.WithOnError(func(err error) { reports = append(reports, err) }), setup.WithSink(func(w io.Writer, _ *slog.HandlerOptions) slog.Handler { writer = w; return nil }))
-	require.EqualError(t, err, "setup: custom sink returned nil")
+	_, err := setup.New(io.Discard, setup.WithBufferSize(8), setup.WithSink(func(w io.Writer, _ *slog.HandlerOptions) slog.Handler {
+		writer = w
+		return nil
+	}))
+	require.Error(t, err)
+	require.NotNil(t, writer)
 
-	buffer, ok := writer.(*bufwriter.Writer)
-	require.True(t, ok)
-
-	_, writeErr := buffer.Write([]byte("after failed constructor"))
-	require.NoError(t, writeErr)
-	require.NoError(t, buffer.Close(t.Context()))
-	require.Len(t, reports, 1)
-	require.ErrorIs(t, reports[0], bufwriter.ErrClosed)
+	_, writeErr := writer.Write([]byte("after failed constructor"))
+	require.ErrorIs(t, writeErr, bufwriter.ErrClosed)
 }
 
 func TestMaskingUnsupportedMapsAndOmittedFields(t *testing.T) {

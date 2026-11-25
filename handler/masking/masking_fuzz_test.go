@@ -49,7 +49,7 @@ func render(tb testing.TB, build func(secret string) slog.Attr, secret string) s
 
 	handler, err := masking.New(inner,
 		masking.WithDefaults(true),
-		masking.WithNested(true),
+
 		masking.WithRules(mask.Rule{Field: "password", Mask: mask.Full()}),
 	)
 

@@ -39,7 +39,7 @@ func TestUnexportedEmbeddingsFailClosed(t *testing.T) {
 				logger.Logger().Info("record", "payload", input)
 				require.NotContains(t, out.String(), "canary")
 				require.Contains(t, out.String(), "********")
-				require.NoError(t, logger.Shutdown(t.Context()))
+				require.NoError(t, deliveryError(logger.Shutdown(t.Context())))
 			})
 		}
 	}
@@ -81,7 +81,7 @@ func TestMatchedContainersAreBounded(t *testing.T) {
 					logger.Logger().Info("record", key, value)
 					require.True(t, strings.Contains(out.String(), "masking:") || strings.Contains(out.String(), "********"))
 					require.NotContains(t, out.String(), "canary")
-					require.NoError(t, logger.Shutdown(t.Context()))
+					require.NoError(t, deliveryError(logger.Shutdown(t.Context())))
 				})
 			}
 		}

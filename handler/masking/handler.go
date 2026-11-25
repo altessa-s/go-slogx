@@ -20,20 +20,21 @@ import (
 )
 
 // Handler masks attributes, including captured and nested values.
-// Message text is not masked.
+// WithMessageMask also redacts message text.
 type Handler struct {
 	handlerbase.Base
-	walker *attrwalk.Walker
+	walker      *attrwalk.Walker
+	messageMask mask.Func
 }
 type pattern struct {
 	re   *regexp.Regexp
 	mask mask.Func
 }
 type matcher struct {
-	fields            map[string]mask.Func
-	patterns          []pattern
-	nested, sensitive bool
-	cache             pathcache.Cache[mask.Func]
+	fields    map[string]mask.Func
+	patterns  []pattern
+	sensitive bool
+	cache     pathcache.Cache[mask.Func]
 }
 
 // New validates every rule before constructing the handler.
@@ -48,11 +49,7 @@ func New(next slog.Handler, opts ...Option) (*Handler, error) {
 		o.defaultMask = mask.Full()
 	}
 
-	if o.defaults {
-		o.nested = true
-	}
-
-	m := &matcher{fields: make(map[string]mask.Func), nested: o.nested, sensitive: o.caseSensitive}
+	m := &matcher{fields: make(map[string]mask.Func), sensitive: o.caseSensitive}
 
 	var rules []mask.Rule
 	if o.defaults {
@@ -110,18 +107,14 @@ func New(next slog.Handler, opts ...Option) (*Handler, error) {
 	}
 
 	if len(rules) == 0 {
-		return &Handler{Base: handlerbase.NewBase(next)}, nil
+		return &Handler{Base: handlerbase.NewBase(next), messageMask: o.messageMask}, nil
 	}
 
 	walker := &attrwalk.Walker{Match: m.match}
 
-	return &Handler{Base: handlerbase.NewBase(next), walker: walker}, nil
+	return &Handler{Base: handlerbase.NewBase(next), messageMask: o.messageMask, walker: walker}, nil
 }
 func (m *matcher) match(name, path string) mask.Func {
-	if !m.nested {
-		path = name
-	}
-
 	if !m.sensitive {
 		name = strings.ToLower(name)
 		path = strings.ToLower(path)
@@ -140,7 +133,7 @@ func (m *matcher) match(name, path string) mask.Func {
 
 	if f == nil {
 		for _, p := range m.patterns {
-			if p.re.MatchString(path) {
+			if p.re.MatchString(path) || (name != path && p.re.MatchString(name)) {
 				f = p.mask
 				break
 			}
@@ -152,8 +145,12 @@ func (m *matcher) match(name, path string) mask.Func {
 	return f
 }
 
-// Handle masks a copy of the record's attributes.
+// Handle masks the record's message and attributes according to the configured options.
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
+	if h.messageMask != nil {
+		r.Message = attrwalk.MaskString(h.messageMask, r.Message)
+	}
+
 	if h.walker == nil {
 		return h.Inner().Handle(ctx, r)
 	}
@@ -167,7 +164,7 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 // WithAttrs resolves and masks captured attributes on the caller goroutine.
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	if h.walker == nil {
-		return &Handler{Base: h.AttrsBase(attrs)}
+		return &Handler{Base: h.AttrsBase(attrs), messageMask: h.messageMask}
 	}
 
 	out := make([]slog.Attr, len(attrs))
@@ -175,7 +172,7 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		out[i] = h.walker.Attr(a, h.Groups())
 	}
 
-	return &Handler{Base: h.AttrsBase(out), walker: h.walker}
+	return &Handler{Base: h.AttrsBase(out), walker: h.walker, messageMask: h.messageMask}
 }
 
 // WithGroup returns a derived handler or the receiver for an empty name.
@@ -184,5 +181,5 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 		return h
 	}
 
-	return &Handler{Base: h.GroupBase(name), walker: h.walker}
+	return &Handler{Base: h.GroupBase(name), walker: h.walker, messageMask: h.messageMask}
 }

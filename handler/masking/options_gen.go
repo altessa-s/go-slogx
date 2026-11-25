@@ -31,10 +31,10 @@ func WithDefaults(v bool) Option {
 	}
 }
 
-// WithNested sets the nested option.
-func WithNested(v bool) Option {
+// WithMessageMask sets the messageMask option.
+func WithMessageMask(v mask.Func) Option {
 	return func(o *options) {
-		o.nested = v
+		o.messageMask = v
 	}
 }
 

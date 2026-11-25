@@ -8,6 +8,7 @@ package setup
 import (
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/altessa-s/go-atlas-core/runtime/appinfo"
 
@@ -37,25 +38,27 @@ const (
 )
 
 type options struct {
-	level             slog.Level `optgen:"default=DefaultLevel"`
-	format            Format
-	sink              func(io.Writer, *slog.HandlerOptions) slog.Handler
-	color             ColorMode
-	addSource         bool   `optval:"param"`
-	timeFormat        string `optgen:"default=DefaultTimeFormat"`
-	tags              map[string]string
-	appGroup          string `optgen:"default=DefaultAppGroup"`
-	appName           string `optgen:"default=defaultAppName()"`
-	appVersion        string `optgen:"default=defaultAppVersion()"`
-	serviceID         string
-	subsystemKey      string `optgen:"default=DefaultSubsystemKey"`
-	subsystemLevels   map[string]slog.Level
-	maskRules         []mask.Rule
-	maskDefaults      bool   `optval:"param"`
-	maskString        string `optgen:"default=DefaultMaskString"`
-	bufferSize        int
-	bufferBypassLevel slog.Level `optgen:"default=DefaultBufferBypassLevel"`
-	onError           func(error)
+	level               slog.Level `optgen:"default=DefaultLevel"`
+	format              Format
+	sink                func(io.Writer, *slog.HandlerOptions) slog.Handler
+	color               ColorMode
+	addSource           bool   `optval:"param"`
+	timeFormat          string `optgen:"default=DefaultTimeFormat"`
+	tags                map[string]string
+	appGroup            string `optgen:"default=DefaultAppGroup"`
+	appName             string `optgen:"default=defaultAppName()"`
+	appVersion          string `optgen:"default=defaultAppVersion()"`
+	serviceID           string
+	subsystemKey        string `optgen:"default=DefaultSubsystemKey"`
+	subsystemLevels     map[string]slog.Level
+	maskRules           []mask.Rule
+	maskDefaults        bool `optval:"param"`
+	messageMask         mask.Func
+	maskString          string `optgen:"default=DefaultMaskString"`
+	bufferSize          int
+	bufferBypassLevel   slog.Level    `optgen:"default=DefaultBufferBypassLevel"`
+	bufferBypassTimeout time.Duration `optgen:"default=DefaultBufferBypassTimeout"`
+	onError             func(error)
 }
 
 // DefaultSubsystemKey identifies subsystem attributes.
@@ -76,5 +79,8 @@ const DefaultAppGroup = "app"
 // DefaultMaskString replaces fields whose rule has no explicit mask.
 const DefaultMaskString = "********"
 
-// DefaultBufferBypassLevel flushes error records before logging returns.
+// DefaultBufferBypassLevel gives error records priority when buffering is enabled.
 const DefaultBufferBypassLevel = slog.LevelError
+
+// DefaultBufferBypassTimeout bounds the wait for admission and delivery.
+const DefaultBufferBypassTimeout = 100 * time.Millisecond

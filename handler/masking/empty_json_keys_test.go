@@ -199,7 +199,7 @@ func TestJSONEmptyKeysPreserveShapeAndMaskPaths(t *testing.T) {
 					var buf bytes.Buffer
 
 					h := portedHandler(t, slog.NewJSONHandler(&buf, nil),
-						masking.WithNested(true),
+
 						masking.WithRules(mask.Rule{Field: path, Mask: mask.Full()}))
 					logger := slog.New(h).WithGroup("root")
 
