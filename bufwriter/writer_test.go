@@ -170,11 +170,13 @@ func TestConcurrentFlushDoesNotBlockCloseDeadline(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		entered, release := make(chan struct{}), make(chan struct{})
+
+		var calls atomic.Int32
+
 		w, err := bufwriter.New(writerFunc(func(p []byte) (int, error) {
-			select {
-			case entered <- struct{}{}:
+			if calls.Add(1) == 1 {
+				close(entered)
 				<-release
-			default:
 			}
 
 			return len(p), nil
