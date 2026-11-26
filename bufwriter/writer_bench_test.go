@@ -27,7 +27,7 @@ func BenchmarkWriter(b *testing.B) {
 		}
 	}
 
-	if err := w.Close(b.Context()); err != nil {
+	if _, err := w.Close(b.Context()); err != nil {
 		b.Fatal(err)
 	}
 }

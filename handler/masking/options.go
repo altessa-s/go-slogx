@@ -11,6 +11,6 @@ type options struct {
 	rules         []mask.Rule `optgen:"append"`
 	defaults      bool        `optval:"param"`
 	defaultMask   mask.Func
-	nested        bool `optval:"param"`
+	messageMask   mask.Func
 	caseSensitive bool `optval:"param"`
 }

@@ -17,29 +17,39 @@ var ErrClosed = errors.New("bufwriter: closed")
 // ErrPanicked reports a writer panic without disclosing its payload.
 var ErrPanicked = errors.New("bufwriter: writer panicked")
 
-type entry struct {
-	bytes   []byte
-	barrier chan struct{}
+// ErrDropped reports a write rejected by the queue's admission policy.
+var ErrDropped = errors.New("bufwriter: write dropped")
+
+// Stats counts writes, including any that are in flight when Close returns.
+type Stats struct {
+	Written         uint64
+	Failed          uint64
+	Pending         uint64
+	Dropped         uint64 // Includes DroppedPriority.
+	DroppedPriority uint64
 }
 
-// Writer queues owned byte copies. Overflow writes synchronously and may
-// overtake queued writes. Close does not close the caller's underlying writer.
+type entry struct {
+	bytes  []byte
+	result chan error
+}
+
+// Writer queues owned byte copies. Only its worker writes to the sink.
 type Writer struct {
 	mu      sync.Mutex
-	writeMu chan struct{}
-	errMu   sync.Mutex
 	sink    io.Writer
 	queue   chan entry
 	done    chan struct{}
-	stop    chan struct{}
+	changed chan struct{}
 	closed  bool
+	waiting int
+	stats   Stats
 	err     error
 	onError func(error)
-	pending map[chan struct{}]struct{}
 }
 
 // New validates the queue size and starts one worker.
-// onError must be concurrency-safe and must not reenter Writer.
+// onError receives sink failures on the worker and must return promptly.
 // Callback panics are contained.
 func New(sink io.Writer, opts ...Option) (*Writer, error) {
 	o := newOptions(opts...)
@@ -47,120 +57,194 @@ func New(sink io.Writer, opts ...Option) (*Writer, error) {
 		return nil, errors.New("bufwriter: writer and positive size required")
 	}
 
-	w := &Writer{sink: sink, writeMu: make(chan struct{}, 1), queue: make(chan entry, o.size),
-		done: make(chan struct{}), stop: make(chan struct{}), onError: o.onError, pending: make(map[chan struct{}]struct{})}
+	w := &Writer{sink: sink, queue: make(chan entry, o.size), done: make(chan struct{}), onError: o.onError}
 	go w.run()
 
 	return w, nil
 }
+
 func (w *Writer) run() {
 	defer close(w.done)
-	defer func() {
+
+	for e := range w.queue {
 		w.mu.Lock()
-		pending := w.pendingWrites()
+		w.notify()
 		w.mu.Unlock()
 
-		for _, done := range pending {
-			<-done
+		err := w.write(e.bytes)
+
+		w.mu.Lock()
+
+		w.stats.Pending--
+		if err == nil {
+			w.stats.Written++
+		} else {
+			w.stats.Failed++
+			w.err = errors.Join(w.err, err)
 		}
+
+		w.notify()
+		w.mu.Unlock()
+
+		if e.result != nil {
+			e.result <- err
+		}
+	}
+}
+
+func (w *Writer) write(p []byte) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = ErrPanicked
+		}
+
+		if err != nil && w.onError != nil {
+			func() { defer func() { _ = recover() }(); w.onError(err) }()
+		}
+	}()
+
+	n, err := w.sink.Write(p)
+	if n != len(p) && err == nil {
+		err = io.ErrShortWrite
+	}
+
+	return err
+}
+
+// notify wakes all waiters. The caller holds mu.
+func (w *Writer) notify() {
+	if w.changed != nil {
+		close(w.changed)
+		w.changed = nil
+	}
+}
+
+// changedSignal returns a signal for the next state change. The caller holds mu.
+func (w *Writer) changedSignal() <-chan struct{} {
+	if w.changed == nil {
+		w.changed = make(chan struct{})
+	}
+
+	return w.changed
+}
+
+// Write copies and queues p, or returns ErrDropped immediately if capacity is
+// exhausted or reserved for waiting priority writes.
+func (w *Writer) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.closed {
+		return 0, ErrClosed
+	}
+
+	if len(w.queue) == cap(w.queue) || w.waiting != 0 {
+		w.stats.Dropped++
+		return 0, ErrDropped
+	}
+
+	w.queue <- entry{bytes: append([]byte(nil), p...)}
+
+	w.stats.Pending++
+
+	return len(p), nil
+}
+
+// WritePriority waits for queue space until ctx ends. An admission timeout
+// drops the write. An admitted write stays queued even if ctx ends while
+// waiting for its delivery result.
+func (w *Writer) WritePriority(ctx context.Context, p []byte) error {
+	result, err := w.enqueuePriority(ctx, p)
+	if err != nil {
+		return err
+	}
+
+	select {
+	case err := <-result:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// DropPriority records a priority write whose preparation exhausted its budget.
+func (w *Writer) DropPriority(err error) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.closed {
+		return ErrClosed
+	}
+
+	return w.dropPriority(err)
+}
+
+func (w *Writer) dropPriority(err error) error {
+	w.stats.Dropped++
+	w.stats.DroppedPriority++
+
+	return errors.Join(ErrDropped, err)
+}
+
+func (w *Writer) enqueuePriority(ctx context.Context, p []byte) (<-chan error, error) {
+	w.mu.Lock()
+
+	w.waiting++
+	defer func() {
+		w.waiting--
+		w.mu.Unlock()
 	}()
 
 	for {
+		if w.closed {
+			return nil, ErrClosed
+		}
+
+		if err := ctx.Err(); err != nil {
+			return nil, w.dropPriority(err)
+		}
+
+		if len(w.queue) < cap(w.queue) {
+			result := make(chan error, 1)
+			w.queue <- entry{bytes: append([]byte(nil), p...), result: result}
+
+			w.stats.Pending++
+
+			return result, nil
+		}
+
+		changed := w.changedSignal()
+		w.mu.Unlock()
+
 		select {
-		case e := <-w.queue:
-			w.process(e)
-		case <-w.stop:
-			for {
-				select {
-				case e := <-w.queue:
-					w.process(e)
-				default:
-					return
-				}
-			}
-		}
-	}
-}
-func (w *Writer) process(e entry) {
-	if e.barrier != nil {
-		close(e.barrier)
-	} else {
-		_, _ = w.write(e.bytes)
-	}
-}
-
-func (w *Writer) write(p []byte) (n int, err error) {
-	func() {
-		w.writeMu <- struct{}{}
-		defer func() { <-w.writeMu }()
-		defer func() {
-			if recover() != nil {
-				n = 0
-				err = ErrPanicked
-			}
-		}()
-
-		n, err = w.sink.Write(p)
-		if n != len(p) && err == nil {
-			err = io.ErrShortWrite
-		}
-	}()
-
-	if err != nil {
-		w.errMu.Lock()
-		w.err = errors.Join(w.err, err)
-		w.errMu.Unlock()
-
-		if w.onError != nil {
-			func() { defer func() { _ = recover() }(); w.onError(err) }()
-		}
-	}
-
-	return n, err
-}
-
-// Write copies bytes before enqueueing. A full queue falls back to synchronous I/O.
-func (w *Writer) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	if w.closed {
-		w.mu.Unlock()
-
-		if w.onError != nil {
-			func() { defer func() { _ = recover() }(); w.onError(ErrClosed) }()
+		case <-changed:
+		case <-ctx.Done():
 		}
 
-		return w.write(p)
-	}
-
-	owned := append([]byte(nil), p...)
-	select {
-	case w.queue <- entry{bytes: owned}:
-		w.mu.Unlock()
-		return len(p), nil
-	default:
-		done := make(chan struct{})
-		w.pending[done] = struct{}{}
-		w.mu.Unlock()
-		n, err := w.write(owned)
 		w.mu.Lock()
-		delete(w.pending, done)
-		close(done)
+	}
+}
+
+// Flush waits for previously queued writes or returns the context error.
+// A completed Flush returns and resets delivery errors since the last Flush.
+func (w *Writer) Flush(ctx context.Context) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	target := w.stats.Written + w.stats.Failed + w.stats.Pending
+	for w.stats.Written+w.stats.Failed < target {
+		changed := w.changedSignal()
 		w.mu.Unlock()
 
-		return n, err
-	}
-}
-func (w *Writer) pendingWrites() []chan struct{} {
-	pending := make([]chan struct{}, 0, len(w.pending))
-	for done := range w.pending {
-		pending = append(pending, done)
-	}
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			w.mu.Lock()
+			return ctx.Err()
+		}
 
-	return pending
-}
-func (w *Writer) errors() error {
-	w.errMu.Lock()
-	defer w.errMu.Unlock()
+		w.mu.Lock()
+	}
 
 	err := w.err
 	w.err = nil
@@ -168,68 +252,33 @@ func (w *Writer) errors() error {
 	return err
 }
 
-// Flush waits for previously admitted writes or returns the context error.
-// It returns and resets joined write errors since the previous Flush or Close.
-// onError receives every individual error.
-// After Close finishes it returns immediately, including after write panics.
-func (w *Writer) Flush(ctx context.Context) error {
-	barrier := make(chan struct{})
-
-	w.mu.Lock()
-
-	pending := w.pendingWrites()
-	if w.closed {
-		w.mu.Unlock()
-
-		select {
-		case <-w.done:
-			return w.errors()
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	w.mu.Unlock()
-
-	select {
-	case w.queue <- entry{barrier: barrier}:
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-w.done:
-		return w.errors()
-	}
-
-	select {
-	case <-barrier:
-		for _, done := range pending {
-			select {
-			case <-done:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-
-		return w.errors()
-	case <-w.done:
-		return w.errors()
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-// Close starts draining exactly once. A timed-out call does not abandon draining;
-// a later call can wait for completion. The underlying writer remains open.
-func (w *Writer) Close(ctx context.Context) error {
+// Close stops admission and waits for the worker until ctx ends. It returns a
+// snapshot of delivery counts and any sink errors since the last Flush. If
+// ctx ends first, the worker keeps draining and the caller can retry Close.
+// The caller retains ownership of the sink.
+func (w *Writer) Close(ctx context.Context) (Stats, error) {
 	w.mu.Lock()
 	if !w.closed {
 		w.closed = true
-		close(w.stop)
+		close(w.queue)
+		w.notify()
 	}
 	w.mu.Unlock()
 
+	var err error
+
 	select {
 	case <-w.done:
-		return w.errors()
 	case <-ctx.Done():
-		return ctx.Err()
+		select {
+		case <-w.done:
+		default:
+			err = ctx.Err()
+		}
 	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.stats, errors.Join(w.err, err)
 }

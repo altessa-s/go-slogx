@@ -3,8 +3,9 @@
 // the LICENSE file.
 
 // Package bufwriter is an asynchronous io.Writer. Callers format a record
-// first and hand this writer finished bytes. A full queue writes synchronously.
-// Close drains and can be called more than once.
+// first and hand this writer finished bytes. A full queue drops the newest
+// write. Priority writes can wait for capacity within a context budget. Close
+// waits for delivery within its context and reports delivery statistics.
 //
 // # Usage
 //

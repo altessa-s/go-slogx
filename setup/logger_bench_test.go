@@ -41,7 +41,7 @@ func BenchmarkL9TextBufferedChain(b *testing.B) {
 		b.Fatal(err)
 	}
 	defer func() {
-		if err := l.Shutdown(b.Context()); err != nil {
+		if _, err := l.Shutdown(b.Context()); err != nil {
 			b.Fatal(err)
 		}
 	}()

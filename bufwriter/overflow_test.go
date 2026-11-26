@@ -8,6 +8,7 @@ import (
 	"context"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -29,12 +30,15 @@ func (w *gateWriter) Write(p []byte) (int, error) {
 
 	return len(p), nil
 }
-func TestOverflowCloseHonorsContext(t *testing.T) {
+func TestPriorityGetsNextAvailableSlot(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		sink := &gateWriter{entered: make(chan struct{}), release: make(chan struct{})}
 		w, err := bufwriter.New(sink, bufwriter.WithSize(1))
+
 		require.NoError(t, err)
+		defer func() { require.NoError(t, deliveryError(w.Close(t.Context()))) }()
+
 		_, err = w.Write([]byte("first"))
 		require.NoError(t, err)
 		<-sink.entered
@@ -42,47 +46,44 @@ func TestOverflowCloseHonorsContext(t *testing.T) {
 		_, err = w.Write([]byte("queued"))
 		require.NoError(t, err)
 
-		complete := make(chan error, 1)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
 
-		go func() { _, err := w.Write([]byte("overflow")); complete <- err }()
+		priority := make(chan error, 1)
+		go func() { priority <- w.WritePriority(ctx, []byte("priority")) }()
 
 		synctest.Wait()
 
-		ctx, cancel := context.WithCancel(t.Context())
-		cancel()
-		require.ErrorIs(t, w.Close(ctx), context.Canceled)
+		_, err = w.Write([]byte("overflow"))
+
 		close(sink.release)
-		require.NoError(t, <-complete)
-		require.NoError(t, w.Close(t.Context()))
-		require.Equal(t, 3, sink.writes)
+		require.ErrorIs(t, err, bufwriter.ErrDropped)
+		require.NoError(t, <-priority)
+
+		stats, err := w.Close(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, bufwriter.Stats{Written: 3, Dropped: 1}, stats)
 	})
 }
-func TestFlushWaitsForOverflow(t *testing.T) {
+
+func TestAdmittedPriorityStaysQueuedAfterTimeout(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		sink := &gateWriter{entered: make(chan struct{}), release: make(chan struct{})}
 		w, err := bufwriter.New(sink, bufwriter.WithSize(1))
 		require.NoError(t, err)
-		_, err = w.Write([]byte("first"))
-		require.NoError(t, err)
-		<-sink.entered
 
-		_, err = w.Write([]byte("queued"))
-		require.NoError(t, err)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
 
-		complete := make(chan error, 1)
-
-		go func() { _, err := w.Write([]byte("overflow")); complete <- err }()
-
-		synctest.Wait()
-
-		flushed := make(chan error, 1)
-		go func() { flushed <- w.Flush(t.Context()) }()
+		err = w.WritePriority(ctx, []byte("priority"))
 
 		close(sink.release)
-		require.NoError(t, <-flushed)
-		require.NoError(t, <-complete)
-		require.NoError(t, w.Close(t.Context()))
-		require.Equal(t, 3, sink.writes)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.NotErrorIs(t, err, bufwriter.ErrDropped)
+
+		stats, err := w.Close(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, bufwriter.Stats{Written: 1}, stats)
 	})
 }

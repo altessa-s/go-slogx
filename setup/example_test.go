@@ -22,7 +22,7 @@ func ExampleNew() {
 
 	l.Logger().Info("ready")
 
-	if err := l.Shutdown(context.Background()); err != nil {
+	if _, err := l.Shutdown(context.Background()); err != nil {
 		panic(err)
 	}
 

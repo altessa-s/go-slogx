@@ -47,7 +47,7 @@ func TestIntegrationColorAutoPTY(t *testing.T) {
 	l, err := setup.New(slave, setup.WithColor(setup.ColorAuto), setup.WithBufferSize(8))
 	require.NoError(t, err)
 	l.Logger().Info("pty")
-	require.NoError(t, l.Shutdown(t.Context()))
+	require.NoError(t, deliveryError(l.Shutdown(t.Context())))
 
 	data := make([]byte, 4096)
 	n, err := master.Read(data)

@@ -42,7 +42,7 @@ func TestNewHandler_WithMaskNestedFields(t *testing.T) {
 	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 
 	h := portedHandler(t, inner,
-		masking.WithNested(true),
+
 		fieldOption("secret", nil),
 	)
 
@@ -138,7 +138,7 @@ func TestHandler_DepthLimitDoesNotLeak(t *testing.T) {
 
 	logger := slog.New(portedHandler(t, inner,
 		masking.WithDefaults(true),
-		masking.WithNested(true),
+
 		fieldOption("password", fullMask()),
 	))
 	logger.LogAttrs(t.Context(), slog.LevelInfo, "msg", slog.Any("account", cyclic))
@@ -169,7 +169,7 @@ func TestHandler_KeyResolution(t *testing.T) {
 		},
 		{
 			name: "mixed-case ascii key inside nested group",
-			opts: []masking.Option{masking.WithNested(true), fieldOption("password", fixedMask("MASKED"))},
+			opts: []masking.Option{fieldOption("password", fixedMask("MASKED"))},
 			attr: slog.Group("Request", slog.Group("Auth", slog.String("PassWord", "v1"), slog.String("User", "alice"))),
 			want: []string{"MASKED", "alice"},
 			deny: []string{"v1"},
@@ -177,7 +177,7 @@ func TestHandler_KeyResolution(t *testing.T) {
 		{
 			name: "dotted rule wins over bare key",
 			opts: []masking.Option{
-				masking.WithNested(true),
+
 				fieldOption("token", fixedMask("FLAT")),
 				fieldOption("Req.Token", fixedMask("NESTED")),
 			},
@@ -187,17 +187,17 @@ func TestHandler_KeyResolution(t *testing.T) {
 		},
 		{
 			name: "pattern matches full path",
-			opts: []masking.Option{masking.WithNested(true), patternOption(`^req\.id$`, fixedMask("MASKED"))},
+			opts: []masking.Option{patternOption(`^req\.id$`, fixedMask("MASKED"))},
 			attr: slog.Group("req", slog.String("id", "v1")),
 			want: []string{"MASKED"},
 			deny: []string{"v1"},
 		},
 		{
-			name: "dotted rule ignored without nested masking",
+			name: "dotted rule works without default masks",
 			opts: []masking.Option{fieldOption("req.id", fixedMask("MASKED"))},
 			attr: slog.Group("req", slog.String("id", "v1")),
-			want: []string{"v1"},
-			deny: []string{"MASKED"},
+			want: []string{"MASKED"},
+			deny: []string{"v1"},
 		},
 	}
 

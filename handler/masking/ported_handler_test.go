@@ -93,7 +93,7 @@ func TestHandler_MasksByFieldPattern(t *testing.T) {
 
 	inner, store := newCaptureHandler()
 	h := portedHandler(t, inner,
-		masking.WithNested(true),
+
 		masking.WithCaseSensitive(true),
 		patternOption(`(?i).*password.*`, fullMask()),
 	)

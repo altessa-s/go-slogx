@@ -69,7 +69,7 @@ func TestTextMarshalerFieldsRemainMasked(t *testing.T) {
 
 							require.NotContains(t, out.String(), "canary")
 							require.True(t, bytes.Contains(out.Bytes(), []byte("********")) || bytes.Contains(out.Bytes(), []byte("safe")))
-							require.NoError(t, logger.Shutdown(t.Context()))
+							require.NoError(t, deliveryError(logger.Shutdown(t.Context())))
 						})
 					}
 				}
@@ -131,7 +131,7 @@ func TestPromotedEmbeddingsFailClosed(t *testing.T) {
 					}
 
 					require.NotContains(t, out.String(), "canary")
-					require.NoError(t, logger.Shutdown(t.Context()))
+					require.NoError(t, deliveryError(logger.Shutdown(t.Context())))
 				})
 			}
 		}

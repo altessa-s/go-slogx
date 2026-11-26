@@ -35,7 +35,7 @@ func TestOptionsAndBypassDerivedHandlers(t *testing.T) {
 			log.Info("flush", "value", 1)
 			require.Contains(t, b.String(), "flush")
 			require.Contains(t, b.String(), "\x1b[")
-			require.NoError(t, l.Shutdown(t.Context()))
+			require.NoError(t, deliveryError(l.Shutdown(t.Context())))
 		}
 
 		var b bytes.Buffer
@@ -43,7 +43,7 @@ func TestOptionsAndBypassDerivedHandlers(t *testing.T) {
 		l, err := setup.New(&b, setup.WithAppGroup("meta"), setup.WithSubsystemKey("component"), setup.WithTimeFormat("2006"), setup.WithMaskString("hidden"), setup.WithColor(setup.ColorNever))
 		require.NoError(t, err)
 		l.Logger().Info("custom")
-		require.NoError(t, l.Shutdown(t.Context()))
+		require.NoError(t, deliveryError(l.Shutdown(t.Context())))
 		require.NotContains(t, b.String(), "\x1b[")
 
 		var callback error
@@ -52,7 +52,9 @@ func TestOptionsAndBypassDerivedHandlers(t *testing.T) {
 		require.NoError(t, err)
 		l.Logger().Error("failure")
 		require.ErrorIs(t, callback, bufwriter.ErrPanicked)
-		require.NoError(t, l.Shutdown(t.Context()))
+		stats, err := l.Shutdown(t.Context())
+		require.ErrorIs(t, err, bufwriter.ErrPanicked)
+		require.Equal(t, bufwriter.Stats{Failed: 1}, stats)
 
 		_, err = setup.New(io.Discard, setup.WithBufferSize(8), setup.WithSink(func(io.Writer, *slog.HandlerOptions) slog.Handler { return nil }))
 		require.Error(t, err)
@@ -70,7 +72,7 @@ func TestBypassConformance(t *testing.T) {
 		require.Same(t, h, h.WithGroup(""))
 		require.True(t, h.Enabled(t.Context(), slog.LevelError))
 		require.NoError(t, h.Handle(t.Context(), slog.Record{Level: slog.LevelInfo, Message: "normal"}))
-		require.NoError(t, l.Shutdown(t.Context()))
+		require.NoError(t, deliveryError(l.Shutdown(t.Context())))
 		require.Contains(t, b.String(), "normal")
 	})
 	require.False(t, errors.Is(io.EOF, bufwriter.ErrPanicked))

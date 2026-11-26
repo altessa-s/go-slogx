@@ -72,7 +72,7 @@ func TestRulesCapturedGroupsAndLogValuer(t *testing.T) {
 
 	r := slogxtest.NewRecorder()
 	calls := 0
-	h, err := masking.New(r, masking.WithNested(true), masking.WithRules(mask.Rule{Field: "g.password"}, mask.Rule{Pattern: "token"}), masking.WithDefaultMask(mask.Fixed("safe")))
+	h, err := masking.New(r, masking.WithRules(mask.Rule{Field: "g.password"}, mask.Rule{Pattern: "token"}), masking.WithDefaultMask(mask.Fixed("safe")))
 	require.NoError(t, err)
 	require.Same(t, h, h.WithGroup(""))
 	log := slog.New(h).WithGroup("g").With(slog.Any("password", logValue{&calls, slog.StringValue("canary")}))
@@ -87,7 +87,7 @@ func TestRulesCapturedGroupsAndLogValuer(t *testing.T) {
 	require.Equal(t, "safe", group["token"])
 	require.Equal(t, float64(3), group["public"])
 	r.Reset()
-	h, err = masking.New(r, masking.WithCaseSensitive(true), masking.WithNested(false), masking.WithRules(mask.Rule{Field: "Password", Mask: mask.Fixed("yes")}))
+	h, err = masking.New(r, masking.WithCaseSensitive(true), masking.WithRules(mask.Rule{Field: "Password", Mask: mask.Fixed("yes")}))
 	require.NoError(t, err)
 	slog.New(h).Info("case", slog.String("password", "visible"), slog.String("Password", "canary"))
 

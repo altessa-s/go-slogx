@@ -21,7 +21,7 @@ func TestCacheSeparatesLiteralAndGroupedKeys(t *testing.T) {
 	for _, captured := range []bool{false, true} {
 		for _, groupedFirst := range []bool{false, true} {
 			r := slogxtest.NewRecorder()
-			h, err := masking.New(r, masking.WithNested(true), masking.WithRules(mask.Rule{Field: "password", Mask: mask.Fixed("safe")}))
+			h, err := masking.New(r, masking.WithRules(mask.Rule{Field: "password", Mask: mask.Fixed("safe")}))
 			require.NoError(t, err)
 
 			log := slog.New(h)

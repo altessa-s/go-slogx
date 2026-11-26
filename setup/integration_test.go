@@ -42,7 +42,7 @@ func TestIntegrationFile(t *testing.T) {
 	l.Logger().Debug("override", slogx.Module("verbose"), "password", "canary", "private", "canary")
 	l.SetLevel(slog.LevelDebug)
 	l.Logger().Debug("runtime")
-	require.NoError(t, l.Shutdown(t.Context()))
+	require.NoError(t, deliveryError(l.Shutdown(t.Context())))
 
 	_, err = file.Seek(0, io.SeekStart)
 	require.NoError(t, err)
@@ -76,7 +76,7 @@ func TestIntegrationColorAutoPipe(t *testing.T) {
 	l, err := setup.New(write, setup.WithBufferSize(8), setup.WithColor(setup.ColorAuto))
 	require.NoError(t, err)
 	l.Logger().Info("pipe")
-	require.NoError(t, l.Shutdown(t.Context()))
+	require.NoError(t, deliveryError(l.Shutdown(t.Context())))
 	require.NoError(t, write.Close())
 
 	out, err := io.ReadAll(read)
@@ -116,7 +116,7 @@ func TestIntegrationConcurrentSoak(t *testing.T) {
 	t.Parallel()
 
 	sink := new(orderedSink)
-	// Capacity holds the entire workload: overflow ordering is explicitly unspecified.
+	// Capacity holds the entire workload so every record can be admitted.
 	l, err := setup.New(sink, setup.WithFormat(setup.JSON), setup.WithBufferSize(64*10000), setup.WithMaskDefaults(true), setup.WithAppName(""), setup.WithAppVersion(""))
 	require.NoError(t, err)
 
@@ -131,7 +131,7 @@ func TestIntegrationConcurrentSoak(t *testing.T) {
 	}
 
 	wg.Wait()
-	require.NoError(t, l.Shutdown(t.Context()))
+	require.NoError(t, deliveryError(l.Shutdown(t.Context())))
 	require.NoError(t, sink.err)
 	require.Equal(t, 640000, sink.count)
 
@@ -178,7 +178,7 @@ func TestIntegrationSignalShutdown(t *testing.T) {
 		fmt.Fprintln(os.Stderr, "READY")
 		<-signals
 
-		if err := l.Shutdown(t.Context()); err != nil && !errors.Is(err, bufwriter.ErrPanicked) {
+		if _, err := l.Shutdown(t.Context()); err != nil && !errors.Is(err, bufwriter.ErrPanicked) {
 			os.Exit(3)
 		}
 

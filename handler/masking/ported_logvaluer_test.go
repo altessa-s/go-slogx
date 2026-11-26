@@ -10,8 +10,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/altessa-s/go-slogx/handler/masking"
 )
 
 type secretLogValue struct{}
@@ -122,7 +120,7 @@ func TestHandler_LogValuerNestedPath(t *testing.T) {
 
 	var out bytes.Buffer
 
-	h := portedHandler(t, slog.NewJSONHandler(&out, nil), fieldOption("request.payload.password", fullMask()), masking.WithNested(true))
+	h := portedHandler(t, slog.NewJSONHandler(&out, nil), fieldOption("request.payload.password", fullMask()))
 	slog.New(h).WithGroup("request").InfoContext(t.Context(), "test", "payload", secretLogValue{})
 	require.NotContains(t, out.String(), "secret-value")
 	require.Contains(t, out.String(), "alice")
