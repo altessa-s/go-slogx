@@ -6,6 +6,7 @@ package setup
 import (
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/altessa-s/go-slogx/mask"
 )
@@ -81,6 +82,13 @@ func WithBufferBypassLevel(v slog.Level) Option {
 	}
 }
 
+// WithBufferBypassTimeout sets the bufferBypassTimeout option.
+func WithBufferBypassTimeout(v time.Duration) Option {
+	return func(o *options) {
+		o.bufferBypassTimeout = v
+	}
+}
+
 // WithBufferSize sets the bufferSize option.
 func WithBufferSize(v int) Option {
 	return func(o *options) {
@@ -138,6 +146,13 @@ func WithMaskString[T interface{ string | *string }](v T) Option {
 		}
 
 		o.maskString = value
+	}
+}
+
+// WithMessageMask sets the messageMask option.
+func WithMessageMask(v mask.Func) Option {
+	return func(o *options) {
+		o.messageMask = v
 	}
 }
 
@@ -226,16 +241,17 @@ func WithTimeFormat[T interface{ string | *string }](v T) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		appGroup:          DefaultAppGroup,
-		appName:           defaultAppName(),
-		appVersion:        defaultAppVersion(),
-		bufferBypassLevel: DefaultBufferBypassLevel,
-		level:             DefaultLevel,
-		maskString:        DefaultMaskString,
-		subsystemKey:      DefaultSubsystemKey,
-		subsystemLevels:   make(map[string]slog.Level),
-		tags:              make(map[string]string),
-		timeFormat:        DefaultTimeFormat,
+		appGroup:            DefaultAppGroup,
+		appName:             defaultAppName(),
+		appVersion:          defaultAppVersion(),
+		bufferBypassLevel:   DefaultBufferBypassLevel,
+		bufferBypassTimeout: DefaultBufferBypassTimeout,
+		level:               DefaultLevel,
+		maskString:          DefaultMaskString,
+		subsystemKey:        DefaultSubsystemKey,
+		subsystemLevels:     make(map[string]slog.Level),
+		tags:                make(map[string]string),
+		timeFormat:          DefaultTimeFormat,
 	}
 }
 

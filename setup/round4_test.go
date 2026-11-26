@@ -120,7 +120,7 @@ func TestJSONRepresentationBypasses(t *testing.T) {
 							require.True(t, json.Valid(out.Bytes()))
 						}
 
-						require.NoError(t, l.Shutdown(t.Context()))
+						require.NoError(t, deliveryError(l.Shutdown(t.Context())))
 					})
 				}
 			}

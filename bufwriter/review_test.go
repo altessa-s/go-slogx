@@ -5,7 +5,6 @@
 package bufwriter_test
 
 import (
-	"errors"
 	"io"
 	"testing"
 	"testing/synctest"
@@ -44,26 +43,20 @@ func TestM1FlushResetsJoinedErrors(t *testing.T) {
 		_, err = w.Write([]byte("success"))
 		require.NoError(t, err)
 		require.NoError(t, w.Flush(t.Context()))
-		require.NoError(t, w.Close(t.Context()))
+		require.NoError(t, deliveryError(w.Close(t.Context())))
 	})
 }
-func TestM2ClosedWriteReportsOnce(t *testing.T) {
+func TestCloseReportsDeliveryFailures(t *testing.T) {
 	t.Parallel()
 
-	reports := 0
-	w, err := bufwriter.New(io.Discard, bufwriter.WithOnError(func(err error) {
-		if errors.Is(err, bufwriter.ErrClosed) {
-			reports++
-		}
-	}))
+	w, err := bufwriter.New(writerFunc(func([]byte) (int, error) { return 0, io.ErrClosedPipe }))
 	require.NoError(t, err)
-	require.NoError(t, w.Close(t.Context()))
+	_, err = w.Write([]byte("record"))
+	require.NoError(t, err)
 
 	for range 2 {
-		n, err := w.Write([]byte("record"))
-		require.NoError(t, err)
-		require.Equal(t, 6, n)
+		stats, err := w.Close(t.Context())
+		require.ErrorIs(t, err, io.ErrClosedPipe)
+		require.Equal(t, bufwriter.Stats{Failed: 1}, stats)
 	}
-
-	require.Equal(t, 2, reports)
 }

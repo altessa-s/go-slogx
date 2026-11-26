@@ -294,7 +294,7 @@ func maskTree(fn mask.Func, tree any, depth int) string {
 		return reason
 	}
 
-	return invokeMask(fn, fmt.Sprint(tree))
+	return MaskString(fn, fmt.Sprint(tree))
 }
 
 // treeLimit bounds conversion of a matched compound value before fmt sees it.
@@ -331,18 +331,18 @@ func treeLimit(tree any, depth int, remaining *int) string {
 func (h *Walker) applyMask(attr slog.Attr, mask mask.Func, depth int) slog.Attr {
 	switch attr.Value.Kind() {
 	case slog.KindString:
-		return slog.String(attr.Key, invokeMask(mask, attr.Value.String()))
+		return slog.String(attr.Key, MaskString(mask, attr.Value.String()))
 
 	case slog.KindInt64, slog.KindUint64, slog.KindFloat64, slog.KindBool:
 		// Convert to string, mask, and keep as string
 		str := fmt.Sprint(attr.Value.Any())
-		return slog.String(attr.Key, invokeMask(mask, str))
+		return slog.String(attr.Key, MaskString(mask, str))
 
 	case slog.KindDuration:
-		return slog.String(attr.Key, invokeMask(mask, attr.Value.Duration().String()))
+		return slog.String(attr.Key, MaskString(mask, attr.Value.Duration().String()))
 
 	case slog.KindTime:
-		return slog.String(attr.Key, invokeMask(mask, attr.Value.Time().String()))
+		return slog.String(attr.Key, MaskString(mask, attr.Value.Time().String()))
 
 	case slog.KindAny:
 		// Top-level key matched: mask the entire value as a single
@@ -354,12 +354,12 @@ func (h *Walker) applyMask(attr slog.Attr, mask mask.Func, depth int) slog.Attr 
 	default:
 		// For unknown types, convert to string and mask
 		str := fmt.Sprint(attr.Value.Any())
-		return slog.String(attr.Key, invokeMask(mask, str))
+		return slog.String(attr.Key, MaskString(mask, str))
 	}
 }
 
-// invokeMask contains consumer callbacks and never exposes a panic payload.
-func invokeMask(fn mask.Func, value string) (result string) {
+// MaskString applies fn and returns a fixed mask if fn panics.
+func MaskString(fn mask.Func, value string) (result string) {
 	defer func() {
 		if recover() != nil {
 			result = "********"

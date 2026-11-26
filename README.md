@@ -15,7 +15,7 @@ The consumer supplies an `io.Writer`. `setup` builds one logger. The library rea
 | `slogx` | Attributes, request fields, context carriers, `LevelOff` |
 | `mask` | Mask functions, rules, and an immutable catalog |
 | `handler/leveled` | Dynamic level and per-subsystem overrides |
-| `handler/masking` | Attribute redaction |
+| `handler/masking` | Attribute and optional message redaction |
 | `handler/prefixed` | Subsystem prefix for text and console output |
 | `console` | Text sink with a private SGR encoder |
 | `bufwriter` | Asynchronous `io.Writer` under the sink |
@@ -57,7 +57,8 @@ if err != nil {
     return err
 }
 logger.Logger().InfoContext(ctx, "ready", slogx.Module("worker"))
-return logger.Shutdown(ctx)
+_, err = logger.Shutdown(ctx)
+return err
 ```
 
 All public configurable constructors return errors. There are no global level,
@@ -73,5 +74,6 @@ valid context. ContextWithLogger replaces; ContextWithLoggerIfAbsent preserves.
 
 Run `make vet && make lint && make test-all && make test-integration && make generate`
 and `make fuzz-seed`. Integration tests use real files, pipes, PTYs and a child
-process; no Docker dependency exists. Overflow may reorder writes, so the
-concurrency-order soak provisions capacity for its full workload.
+process. The concurrency-order soak provisions queue capacity for its full
+workload. A full queue drops ordinary writes and lets priority writes wait
+within a configurable deadline.

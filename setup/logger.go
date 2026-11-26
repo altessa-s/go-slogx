@@ -39,11 +39,14 @@ func New(w io.Writer, opts ...Option) (*Logger, error) {
 		terminal = isatty.IsTerminal(file.Fd()) || isatty.IsCygwinTerminal(file.Fd())
 	}
 
-	if w == nil || o.bufferSize < 0 || o.format > JSON || o.color > ColorNever {
+	if w == nil || o.bufferSize < 0 || o.bufferBypassTimeout <= 0 || o.format > JSON || o.color > ColorNever {
 		return nil, errors.New("setup: invalid writer or options")
 	}
 	// Validate rules before starting a worker or invoking a custom sink.
-	maskOpts := []masking.Option{masking.WithRules(o.maskRules...), masking.WithDefaults(o.maskDefaults), masking.WithDefaultMask(mask.Fixed(o.maskString))}
+	maskOpts := []masking.Option{
+		masking.WithRules(o.maskRules...), masking.WithDefaults(o.maskDefaults),
+		masking.WithDefaultMask(mask.Fixed(o.maskString)), masking.WithMessageMask(o.messageMask),
+	}
 	if _, err := masking.New(slog.DiscardHandler, maskOpts...); err != nil {
 		return nil, err
 	}
@@ -59,6 +62,8 @@ func New(w io.Writer, opts ...Option) (*Logger, error) {
 
 	floor := levelPolicy.MinLevel()
 
+	var output *bufferOutput
+
 	if o.bufferSize > 0 {
 		buffer, bufferErr := bufwriter.New(w, bufwriter.WithSize(o.bufferSize), bufwriter.WithOnError(o.onError))
 		if bufferErr != nil {
@@ -66,13 +71,17 @@ func New(w io.Writer, opts ...Option) (*Logger, error) {
 		}
 
 		l.buffer = buffer
-		w = buffer
+		output = &bufferOutput{buffer: buffer, format: make(chan struct{}, 1)}
+		w = output
 	}
 
 	success := false
 	defer func() {
 		if !success && l.buffer != nil {
-			_ = l.buffer.Close(context.Background())
+			ctx, cancel := context.WithTimeout(context.Background(), o.bufferBypassTimeout)
+			defer cancel()
+
+			_, _ = l.buffer.Close(ctx)
 		}
 	}()
 
@@ -101,7 +110,7 @@ func New(w io.Writer, opts ...Option) (*Logger, error) {
 	}
 
 	if l.buffer != nil {
-		sink = &flushing{next: sink, buffer: l.buffer, level: o.bufferBypassLevel}
+		sink = &buffered{next: sink, output: output, level: o.bufferBypassLevel, timeout: o.bufferBypassTimeout}
 	}
 
 	if o.format == Text {
@@ -158,45 +167,11 @@ func (l *Logger) SetLevel(level slog.Level) { l.level.Set(level) }
 // Level returns the current default threshold.
 func (l *Logger) Level() slog.Level { return l.level.Level() }
 
-// Shutdown drains this logger's byte buffer. The caller retains ownership of w.
-func (l *Logger) Shutdown(ctx context.Context) error {
+// Shutdown drains the logger's byte buffer and reports delivery statistics.
+func (l *Logger) Shutdown(ctx context.Context) (bufwriter.Stats, error) {
 	if l.buffer == nil {
-		return nil
+		return bufwriter.Stats{}, nil
 	}
 
 	return l.buffer.Close(ctx)
-}
-
-type flushing struct {
-	next   slog.Handler
-	buffer *bufwriter.Writer
-	level  slog.Level
-}
-
-func (h *flushing) Enabled(ctx context.Context, level slog.Level) bool {
-	return h.next.Enabled(ctx, level)
-}
-func (h *flushing) Handle(ctx context.Context, r slog.Record) error {
-	err := h.next.Handle(ctx, r)
-	if r.Level >= h.level {
-		err = errors.Join(err, h.buffer.Flush(ctx))
-	}
-
-	return err
-}
-func (h *flushing) WithAttrs(attrs []slog.Attr) slog.Handler {
-	c := *h
-	c.next = h.next.WithAttrs(attrs)
-
-	return &c
-}
-func (h *flushing) WithGroup(name string) slog.Handler {
-	if name == "" {
-		return h
-	}
-
-	c := *h
-	c.next = h.next.WithGroup(name)
-
-	return &c
 }

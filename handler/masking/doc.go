@@ -3,7 +3,8 @@
 // the LICENSE file.
 
 // Package masking applies mask rules to attribute values before they reach the
-// next handler. New rejects a rule that does not validate.
+// next handler. Rules match dotted paths and leaf keys. WithMessageMask opts
+// in to redacting the record message. New validates all rules.
 //
 // # Usage
 //

@@ -35,6 +35,8 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func deliveryError(_ bufwriter.Stats, err error) error { return err }
+
 type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
@@ -52,12 +54,12 @@ func TestDrainCopiesAndClosedFlush(t *testing.T) {
 		copy(data, "modified")
 		require.NoError(t, w.Flush(t.Context()))
 		require.Equal(t, "original", sink.String())
-		require.NoError(t, w.Close(t.Context()))
-		require.NoError(t, w.Close(t.Context()))
+		require.NoError(t, deliveryError(w.Close(t.Context())))
+		require.NoError(t, deliveryError(w.Close(t.Context())))
 		require.NoError(t, w.Flush(t.Context()))
 		_, err = w.Write(data)
-		require.NoError(t, err)
-		require.Equal(t, "originalmodified", sink.String())
+		require.ErrorIs(t, err, bufwriter.ErrClosed)
+		require.Equal(t, "original", sink.String())
 	})
 }
 func TestPanicRecoveryAndWriteErrors(t *testing.T) {
@@ -93,7 +95,7 @@ func TestPanicRecoveryAndWriteErrors(t *testing.T) {
 		require.ErrorIs(t, observed, io.ErrClosedPipe)
 		require.ErrorIs(t, observed, io.ErrShortWrite)
 		require.NotContains(t, err.Error(), "payload")
-		require.NoError(t, w.Close(t.Context()))
+		require.NoError(t, deliveryError(w.Close(t.Context())))
 		require.Equal(t, int32(3), reported.Load())
 	})
 }
@@ -127,14 +129,15 @@ func TestOverflowAndDeadline(t *testing.T) {
 
 		require.ErrorIs(t, w.Flush(ctx), context.DeadlineExceeded)
 
-		completed := make(chan struct{})
-
-		go func() { _, _ = w.Write([]byte("overflow")); close(completed) }()
+		_, err = w.Write([]byte("overflow"))
+		require.ErrorIs(t, err, bufwriter.ErrDropped)
 
 		close(release)
-		<-completed
-		require.NoError(t, w.Close(t.Context()))
-		require.Equal(t, int32(3), count.Load())
+
+		stats, err := w.Close(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, bufwriter.Stats{Written: 2, Dropped: 1}, stats)
+		require.Equal(t, int32(2), count.Load())
 	})
 }
 func TestCloseTimeoutStillDrains(t *testing.T) {
@@ -150,10 +153,10 @@ func TestCloseTimeoutStillDrains(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		require.ErrorIs(t, w.Close(ctx), context.Canceled)
+		require.ErrorIs(t, deliveryError(w.Close(ctx)), context.Canceled)
 		require.ErrorIs(t, w.Flush(ctx), context.Canceled)
 		close(release)
-		require.NoError(t, w.Close(t.Context()))
+		require.NoError(t, deliveryError(w.Close(t.Context())))
 	})
 
 	_, err := bufwriter.New(nil)
@@ -195,9 +198,9 @@ func TestConcurrentFlushDoesNotBlockCloseDeadline(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		require.ErrorIs(t, w.Close(ctx), context.Canceled)
+		require.ErrorIs(t, deliveryError(w.Close(ctx)), context.Canceled)
 		close(release)
 		require.NoError(t, <-flushed)
-		require.NoError(t, w.Close(t.Context()))
+		require.NoError(t, deliveryError(w.Close(t.Context())))
 	})
 }

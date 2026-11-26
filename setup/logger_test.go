@@ -19,10 +19,13 @@ import (
 	"github.com/altessa-s/go-atlas-core/runtime/leakcheck"
 
 	"github.com/altessa-s/go-slogx"
+	"github.com/altessa-s/go-slogx/bufwriter"
 	"github.com/altessa-s/go-slogx/mask"
 	"github.com/altessa-s/go-slogx/setup"
 	"github.com/altessa-s/go-slogx/slogxtest"
 )
+
+func deliveryError(_ bufwriter.Stats, err error) error { return err }
 
 func TestMain(m *testing.M) {
 	code := m.Run()
@@ -56,8 +59,8 @@ func TestDynamicLevelsAndChain(t *testing.T) {
 				l.Logger().Error("off", slogx.Module("off"))
 				l.SetLevel(slogx.LevelOff)
 				l.Logger().Error("disabled")
-				require.NoError(t, l.Shutdown(t.Context()))
-				require.NoError(t, l.Shutdown(t.Context()))
+				require.NoError(t, deliveryError(l.Shutdown(t.Context())))
+				require.NoError(t, deliveryError(l.Shutdown(t.Context())))
 
 				out := b.String()
 				require.Contains(t, out, "override")
@@ -111,7 +114,7 @@ func TestM6R1BufferedEncodingOwnsBytes(t *testing.T) {
 					mutableErr.message = "after"
 				}
 
-				require.NoError(t, l.Shutdown(t.Context()))
+				require.NoError(t, deliveryError(l.Shutdown(t.Context())))
 				require.NotContains(t, b.String(), "after")
 				require.Contains(t, b.String(), "before")
 			})
@@ -136,7 +139,7 @@ func TestValidationAndCustomSink(t *testing.T) {
 	l, err := setup.New(io.Discard, setup.WithFormat(setup.JSON), setup.WithSink(func(io.Writer, *slog.HandlerOptions) slog.Handler { return recorder }), setup.WithAppName(""), setup.WithAppVersion(""))
 	require.NoError(t, err)
 	l.Logger().Info("custom")
-	require.NoError(t, l.Shutdown(t.Context()))
+	require.NoError(t, deliveryError(l.Shutdown(t.Context())))
 
 	rows, err := recorder.Records()
 	require.NoError(t, err)
@@ -180,7 +183,7 @@ func TestBufferedConformance(t *testing.T) {
 
 		return logger.Logger().Handler()
 	}, func(t *testing.T) map[string]any {
-		require.NoError(t, logger.Shutdown(t.Context()))
+		require.NoError(t, deliveryError(logger.Shutdown(t.Context())))
 
 		var record map[string]any
 		require.NoError(t, json.Unmarshal(output.Bytes(), &record))
