@@ -5,7 +5,7 @@ go 1.27.0
 toolchain go1.27.4
 
 require (
-	github.com/altessa-s/go-atlas-core v0.3.5
+	github.com/altessa-s/go-atlas-core v0.4.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/stretchr/testify v1.12.1
 )
