@@ -251,3 +251,39 @@ func TestL8URLMasksLastSegment(t *testing.T) {
 		require.Equal(t, "/********", output.Path)
 	}
 }
+
+// TestMustPartial masks as Partial for valid arguments and panics with ErrParams for every argument Partial refuses.
+func TestMustPartial(t *testing.T) {
+	t.Parallel()
+
+	for _, args := range [][2]int{{0, 4}, {1, 1}, {3, 0}, {math.MaxInt, math.MaxInt}} {
+		want, err := mask.Partial(args[0], args[1], '#')
+		require.NoError(t, err)
+
+		got := mask.MustPartial(args[0], args[1], '#')
+		for _, s := range []string{"", "a", "1234", "12345678", "секрет"} {
+			require.Equal(t, want(s), got(s), "%v %q", args, s)
+		}
+	}
+
+	require.Equal(t, "****5678", mask.MustPartial(0, 4, '*')("12345678"))
+
+	for name, call := range map[string]func(){
+		"negative first": func() { mask.MustPartial(-1, 0, '*') },
+		"negative last":  func() { mask.MustPartial(0, -1, '*') },
+		"negative rune":  func() { mask.MustPartial(0, 0, -1) },
+		"surrogate rune": func() { mask.MustPartial(0, 0, 0xD800) },
+	} {
+		require.PanicsWithError(t, mask.ErrParams.Error(), call, name)
+
+		func() {
+			defer func() {
+				err, ok := recover().(error)
+				require.True(t, ok, name)
+				require.ErrorIs(t, err, mask.ErrParams, name)
+			}()
+
+			call()
+		}()
+	}
+}
