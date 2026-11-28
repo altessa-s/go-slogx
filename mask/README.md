@@ -8,7 +8,8 @@ Redaction functions and an immutable catalog of named masks. A rule names either
 
 ## Builtins
 
-`Full`, `Fixed`, `Partial`, `Email`, `Phone`, `CreditCard`, `URL`, and `Regexp`. `Partial` counts runes and rejects a negative keep count.
+`Full`, `Fixed`, `Partial`, `Email`, `Phone`, `CreditCard`, `URL`, and `Regexp`. `Partial` counts runes and rejects a negative keep count;
+`MustPartial` panics instead, for keep counts fixed in code.
 `URL` parses with `net/url`, drops a userinfo password, and masks query values.
 
 ## Catalog

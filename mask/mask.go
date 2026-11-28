@@ -66,6 +66,16 @@ func Partial(first, last int, r rune) (Func, error) {
 	}, nil
 }
 
+// MustPartial is [Partial] for arguments fixed in code; it panics when they are invalid.
+func MustPartial(first, last int, r rune) Func {
+	f, err := Partial(first, last, r)
+	if err != nil {
+		panic(err)
+	}
+
+	return f
+}
+
 // Email masks the local part and preserves the domain.
 func Email() Func {
 	return func(s string) string {
