@@ -5,14 +5,21 @@
 package mask_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"go/doc"
+	"go/format"
+	"go/parser"
+	"go/token"
 	"math"
 	"net/url"
+	"path/filepath"
 	"slices"
 	"testing"
 	"unicode/utf8"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-slogx/mask"
@@ -267,12 +274,14 @@ func TestMustPartial(t *testing.T) {
 	}
 
 	require.Equal(t, "****5678", mask.MustPartial(0, 4, '*')("12345678"))
+	require.Equal(t, "***", mask.MustPartial(0, 0, '*')("abc"))
 
 	for name, call := range map[string]func(){
 		"negative first": func() { mask.MustPartial(-1, 0, '*') },
 		"negative last":  func() { mask.MustPartial(0, -1, '*') },
 		"negative rune":  func() { mask.MustPartial(0, 0, -1) },
 		"surrogate rune": func() { mask.MustPartial(0, 0, 0xD800) },
+		"above max rune": func() { mask.MustPartial(0, 0, utf8.MaxRune+1) },
 	} {
 		require.PanicsWithError(t, mask.ErrParams.Error(), call, name)
 
@@ -286,4 +295,32 @@ func TestMustPartial(t *testing.T) {
 			call()
 		}()
 	}
+}
+
+func TestMustPartialExampleDocumentation(t *testing.T) {
+	t.Parallel()
+
+	paths, err := filepath.Glob("example*_test.go")
+	require.NoError(t, err)
+
+	for _, path := range paths {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		require.NoError(t, err)
+
+		for _, example := range doc.Examples(file) {
+			if example.Name != "MustPartial" {
+				continue
+			}
+
+			var rendered bytes.Buffer
+			require.NoError(t, format.Node(&rendered, fset, example.Code))
+			assert.Contains(t, rendered.String(), "mask.MustPartial(")
+			assert.NotNil(t, example.Play, "MustPartial example must be runnable in the playground")
+
+			return
+		}
+	}
+
+	t.Fatal("MustPartial example not found")
 }
