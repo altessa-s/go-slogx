@@ -5,6 +5,7 @@
 package bufwriter_test
 
 import (
+	"context"
 	"io"
 	"testing"
 
@@ -12,22 +13,43 @@ import (
 )
 
 func BenchmarkWriter(b *testing.B) {
-	w, err := bufwriter.New(io.Discard)
+	const batchSize = 1024
+
+	w, err := bufwriter.New(io.Discard, bufwriter.WithSize(batchSize))
 	if err != nil {
 		b.Fatal(err)
 	}
 
+	b.Cleanup(func() {
+		// The benchmark context is canceled before cleanup runs.
+		if _, err := w.Close(context.Background()); err != nil {
+			b.Error(err)
+		}
+	})
+
 	data := []byte("encoded record\n")
+	batchWrites := 0
 
 	b.ReportAllocs()
 
 	for b.Loop() {
+		// Drain outside the timer after at most one queue's worth of writes.
+		if batchWrites == batchSize {
+			b.StopTimer()
+
+			if err := w.Flush(b.Context()); err != nil {
+				b.Fatal(err)
+			}
+
+			batchWrites = 0
+
+			b.StartTimer()
+		}
+
 		if _, err := w.Write(data); err != nil {
 			b.Fatal(err)
 		}
-	}
 
-	if _, err := w.Close(b.Context()); err != nil {
-		b.Fatal(err)
+		batchWrites++
 	}
 }
